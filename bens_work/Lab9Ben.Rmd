@@ -1,0 +1,78 @@
+---
+title: "Lab9"
+output: pdf_document
+date: "2023-11-07"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+knitr::opts_chunk$set(root.dir = "/Users/benjamingreen/Documents/BMEG310/bmeg310-2023-group3")
+```
+
+```{r}
+# setwd("/Users/benjamingreen/Documents/BMEG310/bmeg310-2023-group3")
+# getwd()
+```
+
+
+```{r}
+# Get the data
+data.clinical <- read.delim("../data/data_clinical_patient.txt", sep = "\t", header = TRUE, comment.char = "#")
+data.mutation <- read.delim("../data/data_mutations.txt", sep = "\t", header = TRUE, comment.char = "#")
+data.expression <- read.delim("../data/RNAseq_BRCA.csv", sep = ",", header = TRUE, comment.char = "#")
+```
+
+```{r}
+colnames(data.clinical)
+```
+```{r}
+# Get all the unique patients with clinical, mutation, and expression data
+# Code from lab 7
+
+# Extract the patient IDs from columns
+clinical.patients <- data.clinical$PATIENT_ID
+mutation.patients <- unlist(list(substr(data.mutation$Tumor_Sample_Barcode, 1, 12)))
+expression.patients <- substr(colnames(data.expression), 1, 12)[-1]
+
+# Replace . with - in expression.patients
+expression.patients.formated <- gsub("\\.", "-", expression.patients)
+
+# Identify the number of unique patients in each data file
+clinical.num <- length(unique(clinical.patients))
+mutation.num <- length(unique(mutation.patients))
+expression.num <- length(unique(expression.patients))
+
+#
+intersect.patients <- intersect(intersect(clinical.patients, mutation.patients), expression.patients.formated)
+length(intersect.patients)
+```
+
+```{r}
+intersect.clinical <- data.clinical[data.clinical$PATIENT_ID %in% intersect.patients,]
+```
+
+```{r}
+library(ggplot2)
+
+ggplot(data = intersect.clinical, aes(x = factor("Patients"), y = AGE)) + 
+  geom_boxplot()
+```
+```{r}
+mutation.intersect <- data.mutation[substr(data.mutation$Tumor_Sample_Barcode, 1, 12) %in% intersect.patients,]
+nonsyn.mutation.data <- data.mutation[!(mutation.intersect$Consequence == "synonymous_variant"), ]
+ggplot(data = nonsyn.mutation.data, aes(x=Tumor_Sample_Barcode)) + 
+  geom_bar(aes(y = after_stat(count))) + 
+  ggtitle("Number of non-synonymous mutations in each case") + 
+  xlab("Case") + 
+  ylab("Number") +
+  theme(axis.ticks.x=element_blank(),
+        axis.text.x=element_blank())
+```
+
+
+
+
+
+
+
