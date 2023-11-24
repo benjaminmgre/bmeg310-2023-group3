@@ -1,0 +1,50 @@
+
+```{r}
+# Get the data
+data.clinical <- read.delim("data_clinical_patient.txt", sep = "\t", header = TRUE, comment.char = "#")
+data.mutation <- read.delim("data_mutations.txt", sep = "\t", header = TRUE, comment.char = "#")
+data.expression <- read.delim("RNAseq_BRCA.csv", sep = ",", header = TRUE, comment.char = "#")
+```
+
+```{r}
+# Build the patient-mutation matrix
+mutation.patients <- unique(substr(data.mutation$Tumor_Sample_Barcode, 1, 12))
+clinical.patients <- data.clinical$PATIENT_ID
+expression.patients <- gsub("\\.", "-", substr(colnames(data.expression), 1, 12)[-1])
+
+# Get the patients that we have full data for
+unique.patients.full.data <- Reduce(intersect, list(mutation.patients, clinical.patients, expression.patients))
+
+# Make a new column with the cleaned patient ID (same as other datasets)
+data.mutation$Tumor_Sample_Barcode_Cleaned <- substr(data.mutation$Tumor_Sample_Barcode, 1, 12)
+
+# Non-coding transcript exon variant?
+important_mutations <- data.mutation[which(data.mutation$IMPACT %in% c("HIGH", "MODERATE")), ]
+
+# Get the important mutations for full-data patients
+important_mutations_full_data <- important_mutations[which(important_mutations$Tumor_Sample_Barcode_Cleaned %in% unique.patients.full.data), ]
+
+feature_df <- important_mutations_full_data[c("Hugo_Symbol", "Tumor_Sample_Barcode_Cleaned"), ]
+
+# Make feature matrix
+feature_mat <- table(important_mutations_full_data$Hugo_Symbol, important_mutations_full_data$Tumor_Sample_Barcode_Cleaned)
+
+# Turn into binary matrix
+feature_mat[feature_mat > 1] <- 1
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
