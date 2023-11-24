@@ -1,0 +1,65 @@
+---
+title: "MutationAnalysis-Final"
+author: "Aadesh Mehra"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r}
+library(readr)
+clinicalData <- read.table("C://Users//Aadesh//OneDrive - UBC//Desktop//bmeg - third//BMEG310 Project//BMEG310Project//TCGA-BRCA//data_clinical_patient.txt", sep="\t", header=TRUE)
+
+MutationData <- read.delim("C://Users//Aadesh//OneDrive - UBC//Desktop//bmeg - third//BMEG310 Project//BMEG310Project//TCGA-BRCA//data_mutations.txt")
+
+RNAseqData <- read.table("C://Users//Aadesh//OneDrive - UBC//Desktop//bmeg - third//BMEG310 Project//BMEG310Project//TCGA-BRCA//RNAseq_BRCA.csv", sep=",", header=TRUE)
+```
+
+
+```{r}
+
+#Number of unique patients in Clincal data
+
+clinicalUnique <- unique(clinicalData[,1])
+
+#Number of unique in mutation data
+mutationPatients <- (MutationData$Tumor_Sample_Barcode)
+MutationPatient <- unique(substr(mutationPatients, 1, 12))
+
+RNAseqPatients <- colnames(RNAseqData)
+RNAseqPatient <- RNAseqPatients[-c(1)]
+SeqPatient <- substr(RNAseqPatient, 1, 12)
+
+#Changes all "." to "-" for comparison
+for (i in 1:length(RNAseqPatient)) {
+  
+  SeqPatient[i] <- chartr(".","-",SeqPatient[i])
+}
+
+#Finds unique patients in RNAseq
+UniqueSeqPatients <- unique(SeqPatient)
+
+#All patients across all data
+Allpatients <- intersect(UniqueSeqPatients, intersect(MutationPatient, clinicalUnique))
+```
+
+```{r}
+matrixData <- data.frame()
+
+ImportantMutation <- which(MutationData$IMPACT %in% c("HIGH", "MODERATE"))
+
+#matrixData$mutations <- MutationData$Consequence == ""
+
+print(unique(MutationData$Consequence[ImportantMutation]))
+
+matrixData$mutations <- MutationData$Consequence[ImportantMutation]
+
+matrixData$Genes <- unique(MutationData$Hugo_Symbol)
+
+for (i in 1:length(MutationData$Tumor_Sample_Barcode)) {
+   if((substr(mutationPatients[i], 1, 12) == Allpatients)
+}
+matrixData$Patients <- unique(MutationData$Tumor_Sample_Barcode == )
+
+View(matrix)
+```
+
