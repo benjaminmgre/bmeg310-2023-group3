@@ -1,0 +1,29 @@
+---
+title: "mutation_analysis_extra"
+output: pdf_document
+date: "2023-11-27"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This is just extra work I did not want to delete but also am not including in the main document.
+
+Below I have tried hclustering, which did not work well. 
+```{r}
+dist_mat <- dist(feature_df_filtered, method = "binary")
+
+hclust <- hclust(dist_mat, method = 'complete')
+plot(hclust)
+```
+
+```{r}
+cut3 <- cutree(hclust, k = 3)
+```
+
+```{r}
+plot(hclust)
+rect.hclust(hclust , k = 3, border = 2:6)
+abline(h = 3, col = 'red')
+```
