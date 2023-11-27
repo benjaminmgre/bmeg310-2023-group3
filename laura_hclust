@@ -1,0 +1,105 @@
+
+```{r}
+# MAKE SURE THE WD IS THE ROOT PROJECT FOLDER
+
+# Get the data
+data.clinical <- read.delim("data/data_clinical_patient.txt", sep = "\t", header = TRUE, comment.char = "#")
+data.mutation <- read.delim("data/data_mutations.txt", sep = "\t", header = TRUE, comment.char = "#")
+data.expression <- read.delim("data/RNAseq_BRCA.csv", sep = ",", header = TRUE, comment.char = "#")
+```
+
+```{r}
+# Build the patient-mutation matrix
+mutation.patients <- unique(substr(data.mutation$Tumor_Sample_Barcode, 1, 12))
+clinical.patients <- data.clinical$PATIENT_ID
+expression.patients <- gsub("\\.", "-", substr(colnames(data.expression), 1, 12)[-1])
+
+# Get the patients that we have full data for
+unique.patients.full.data <- Reduce(intersect, list(mutation.patients, clinical.patients, expression.patients))
+
+# Make a new column with the cleaned patient ID (same as other datasets)
+data.mutation$Tumor_Sample_Barcode_Cleaned <- substr(data.mutation$Tumor_Sample_Barcode, 1, 12)
+
+# Non-coding transcript exon variant?
+important_mutations <- data.mutation[which(data.mutation$IMPACT %in% c("HIGH", "MODERATE")), ]
+
+# Get the important mutations for full-data patients
+important_mutations_full_data <- important_mutations[which(important_mutations$Tumor_Sample_Barcode_Cleaned %in% unique.patients.full.data), ]
+
+feature_df <- important_mutations_full_data[c("Hugo_Symbol", "Tumor_Sample_Barcode_Cleaned"), ]
+
+# Make feature matrix
+feature_mat <- table(important_mutations_full_data$Tumor_Sample_Barcode_Cleaned, important_mutations_full_data$Hugo_Symbol)
+
+# Turn into binary matrix
+feature_mat[feature_mat > 1] <- 1
+```
+
+Clustering
+
+Below I have tried PCA, which does not work on this large, sparse dataset.
+```{r}
+# Perform PCA on the feature matrix
+feature.pca <- prcomp(feature_mat, center = TRUE)
+```
+
+```{r}
+library(ggbiplot)
+ggbiplot(feature.pca, var.axes = FALSE, ellipse = TRUE)
+
+summary(feature.pca)
+```
+
+PCA does not do a good job seperating the large dataset, so we will continue without it.
+
+Filter for the top ~20 mutated genes
+```{r}
+quantile(colSums(feature_mat), probs = 0.999)
+```
+Therefore, any genes with 9 or more mutations are in the 99.8th percentile.
+
+```{r}
+feature_mat_filtered <- feature_mat[, colSums(feature_mat) >= 51]
+str(feature_mat_filtered)
+```
+The feature matrix before filtering had 16503 genes. This matrix has only the most mutated genes (>51 patients) and only has 17 genes.
+
+K means clustering:
+
+```{r}
+library(tidyverse)
+feature_df_filtered <- as.data.frame(feature_mat_filtered)
+feature_df_filtered <- pivot_wider(feature_df_filtered, names_from = Var2, values_from = Freq)
+# Save the patients
+patient.order <- feature_df_filtered$Var1
+# Remove the patients column
+feature_df_filtered <- feature_df_filtered[, -1]
+
+set.seed(1234)
+feature.kmeans <- kmeans(feature_df_filtered, 5)
+print(sum(feature.kmeans$cluster == 1))
+print(sum(feature.kmeans$cluster == 2))
+print(sum(feature.kmeans$cluster == 3))
+print(sum(feature.kmeans$cluster == 4))
+print(sum(feature.kmeans$cluster == 5))
+```
+
+By splitting the data into two clusters, one has 660 patients and the other has 346 clusters.
+
+```{r}
+# Get the patients in each cluster
+cluster1 <- patient.order[ifelse(feature.kmeans$cluster == 1, TRUE, FALSE)]
+cluster2 <- patient.order[ifelse(feature.kmeans$cluster == 2, TRUE, FALSE)]
+```
+
+```{r}
+set.seed(1234)
+dist_mat <- dist(feature_df_filtered, method = 'binary')
+hclust_ward <- hclust(dist_mat, method = 'ward')
+```
+```{r}
+cut_ward <- cutree(hclust_ward, h = 40)
+plot(hclust_ward)
+rect.hclust(hclust_ward, h = 40, border = 2:6)
+abline(h = 40, col = 'red')
+```
