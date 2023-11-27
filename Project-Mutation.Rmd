@@ -17,49 +17,92 @@ RNAseqData <- read.table("C://Users//Aadesh//OneDrive - UBC//Desktop//bmeg - thi
 
 ```{r}
 
-#Number of unique patients in Clincal data
+mutation.patients <- unique(substr(MutationData$Tumor_Sample_Barcode, 1, 12))
+clinical.patients <- clinicalData$PATIENT_ID
+expression.patients <- gsub("\\.", "-", substr(colnames(RNAseqData), 1, 12)[-1])
 
-clinicalUnique <- unique(clinicalData[,1])
+unique.patients.full.data <- Reduce(intersect, list(mutation.patients, clinical.patients, expression.patients))
 
-#Number of unique in mutation data
-mutationPatients <- (MutationData$Tumor_Sample_Barcode)
-MutationPatient <- unique(substr(mutationPatients, 1, 12))
+MutationData$Tumor_Sample_Barcode_Cleaned <- substr(MutationData$Tumor_Sample_Barcode, 1, 12)
 
-RNAseqPatients <- colnames(RNAseqData)
-RNAseqPatient <- RNAseqPatients[-c(1)]
-SeqPatient <- substr(RNAseqPatient, 1, 12)
+important_mutations <- MutationData[which(MutationData$IMPACT %in% c("HIGH", "MODERATE")), ]
 
-#Changes all "." to "-" for comparison
-for (i in 1:length(RNAseqPatient)) {
-  
-  SeqPatient[i] <- chartr(".","-",SeqPatient[i])
-}
+# Get the important mutations for full-data patients
+important_mutations_full_data <- important_mutations[which(important_mutations$Tumor_Sample_Barcode_Cleaned %in% unique.patients.full.data), ]
 
-#Finds unique patients in RNAseq
-UniqueSeqPatients <- unique(SeqPatient)
 
-#All patients across all data
-Allpatients <- intersect(UniqueSeqPatients, intersect(MutationPatient, clinicalUnique))
 ```
 
 ```{r}
-matrixData <- data.frame()
+#Create a contingency matrix
 
-ImportantMutation <- which(MutationData$IMPACT %in% c("HIGH", "MODERATE"))
+contingency_matrix <- table(important_mutations_full_data$Hugo_Symbol,important_mutations_full_data$Tumor_Sample_Barcode_Cleaned)
 
-#matrixData$mutations <- MutationData$Consequence == ""
+contingency_matrix[contingency_matrix > 1 ] <- 1
 
-print(unique(MutationData$Consequence[ImportantMutation]))
+library(tidyverse)
 
-matrixData$mutations <- MutationData$Consequence[ImportantMutation]
+Mutation_frame <- as.data.frame(contingency_matrix)
 
-matrixData$Genes <- unique(MutationData$Hugo_Symbol)
+#reassign column and row names to look like "matrix"
+Mutation_frame <- pivot_wider(Mutation_frame, names_from = Var2, values_from = Freq)
+patient_order <- Mutation_frame$Var2
 
-for (i in 1:length(MutationData$Tumor_Sample_Barcode)) {
-   if((substr(mutationPatients[i], 1, 12) == Allpatients)
-}
-matrixData$Patients <- unique(MutationData$Tumor_Sample_Barcode == )
+mutation_data <- t(Mutation_frame[ , -1])
 
-View(matrix)
+mutation.kmeans <- kmeans(mutation_data, 2)
+#ovarian.kmeans.prediction <- ifelse(ovarian.kmeans$cluster == 1, "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o","p")
+
+library(ggplot2)
+library(factoextra)
+fviz_cluster(mutation.kmeans, 
+             data = mutation_data,
+             main = 'Mutation Dataset clustering: K-means method',
+             geom = 'point')
+
+print(sum(mutation.kmeans$cluster == 1))
+print(sum(mutation.kmeans$cluster == 2))
+
+#Filter top 20 genes
+
+
+
+#library(mclust)
+
+# Assuming you have a binary matrix called contingency_table
+# Replace this with your actual binary matrix
+
+# Fit a Bernoulli Mixture Model
+#model <- Mclust(Mutation_frame, G = 2)  # G is the number of components (clusters)
+
+# Print the summary of the model
+#summary(model)
+
+# Plot the clusters
+#plot(model, what = "classification")
+```
+
+
+```{r}
+contingency_matrix <- table(important_mutations_full_data$Hugo_Symbol,important_mutations_full_data$Tumor_Sample_Barcode_Cleaned)
+
+contingency_matrix[contingency_matrix > 1 ] <- 1
+
+Mutation_frame <- as.data.frame(contingency_matrix)
+
+na_count <- sum(is.na(Mutation_frame))
+na_count
+
+mutation.kmeans <- kmeans(Mutation_frame, 2)
+
+library(ggplot2)
+library(factoextra)
+library(tidyverse)
+
+
+fviz_cluster(mutation.kmeans, 
+             data = Mutation_frame,
+             main = 'Mutation Dataset clustering: K-means method',
+             geom = 'point')
 ```
 
