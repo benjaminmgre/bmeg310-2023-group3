@@ -64,8 +64,6 @@ str(feature_mat_filtered)
 ```
 The feature matrix before filtering had 16503 genes. This matrix has only the most mutated genes (>51 patients) and only has 17 genes.
 
-K means clustering:
-
 ```{r}
 library(tidyverse)
 feature_df_filtered <- as.data.frame(feature_mat_filtered)
@@ -74,8 +72,25 @@ feature_df_filtered <- pivot_wider(feature_df_filtered, names_from = Var2, value
 patient.order <- feature_df_filtered$Var1
 # Remove the patients column
 feature_df_filtered <- feature_df_filtered[, -1]
+```
 
-set.seed(1234)
+
+Try PCA:
+```{r}
+feature.pca <- prcomp(feature_df_filtered, center = TRUE)
+
+library(ggbiplot)
+ggbiplot(feature.pca, var.axes = FALSE, ellipse = TRUE)
+
+summary(feature.pca)
+```
+
+
+
+K means clustering:
+
+```{r}
+set.seed(123)
 feature.kmeans <- kmeans(feature_df_filtered, 2)
 print(sum(feature.kmeans$cluster == 1))
 print(sum(feature.kmeans$cluster == 2))

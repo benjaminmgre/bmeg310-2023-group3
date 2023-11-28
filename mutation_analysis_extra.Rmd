@@ -27,3 +27,6 @@ plot(hclust)
 rect.hclust(hclust , k = 3, border = 2:6)
 abline(h = 3, col = 'red')
 ```
+
+
+
