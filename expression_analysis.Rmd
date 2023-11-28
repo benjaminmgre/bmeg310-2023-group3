@@ -1,0 +1,66 @@
+
+```{r}
+# Assuming the mutation_analysis has already been run and clusters have been generated.
+clusters <- list(cluster1, cluster2)
+```
+
+```{r}
+# Format data.expression
+# Load data
+data.expression <- read.delim("data/RNAseq_BRCA.csv", sep = ",", header = TRUE, comment.char = "#")
+
+# Set gene IDs as rownames
+rownames(data.expression) <- data.expression[, 1]
+# Remove excess gene IDs column
+data.expression <- data.expression[, -1]
+
+# Clean up patient tags for expression data
+patient.ids <- colnames(data.expression)
+patient.ids.shortened <- substr(patient.ids, 1, 12)
+patient.ids.shortened.sub <- gsub("\\.", "-", patient.ids.shortened)
+colnames(data.expression) <- patient.ids.shortened.sub
+```
+
+```{r}
+# Filter out genes that only have 0 or 1 read counts accross all samples
+counts <- data.expression[rowSums(data.expression) > 1, ]
+# Make rows == samples and columns == genes
+counts <- t(counts)
+```
+
+# Exploratory Analysis and Visualization
+
+```{r}
+# Because the dist matrix is symmetrical, upper just puts the values on both 
+# the upper and lower sides
+countDists <- dist(counts, upper = TRUE)
+```
+
+```{r}
+# Function that takes an ordered list of patient ids, and a list of patient
+# clusters, returns a ordered list of which cluster each patient is in
+
+clusterLabels <- match(colnames(data.expression), clusters)
+clusterLabels <- function(patient.ids, clusters) {
+  
+}
+
+"TCGA-GM-A4E0" %in% clusters
+
+get.patient.cluster <- function(patient.id) {
+  id.in.cluster <- function(id, cluster) {id %in% cluster}
+  Position(function(x) id.in.cluster(patient.id, x), clusters)
+}
+lapply(rownames(counts), get.patient.cluster)
+
+```
+
+
+
+
+
+
+
+
+
+
