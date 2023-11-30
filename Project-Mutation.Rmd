@@ -25,84 +25,138 @@ unique.patients.full.data <- Reduce(intersect, list(mutation.patients, clinical.
 
 MutationData$Tumor_Sample_Barcode_Cleaned <- substr(MutationData$Tumor_Sample_Barcode, 1, 12)
 
+
+
+```
+
+```{r}
+
+# Non-coding transcript exon variant?
 important_mutations <- MutationData[which(MutationData$IMPACT %in% c("HIGH", "MODERATE")), ]
 
 # Get the important mutations for full-data patients
 important_mutations_full_data <- important_mutations[which(important_mutations$Tumor_Sample_Barcode_Cleaned %in% unique.patients.full.data), ]
 
+# Make feature matrix
+feature_mat <- table(important_mutations_full_data$Tumor_Sample_Barcode_Cleaned, important_mutations_full_data$Hugo_Symbol)
+
+# Turn into binary matrix
+feature_mat[feature_mat > 1] <- 1
 
 ```
 
 ```{r}
-#Create a contingency matrix
+#Only analyze genes with greater than 51 mutations to filter down data
+feature_mat_filtered <- feature_mat[, colSums(feature_mat) >= 51]
+print(ncol(feature_mat_filtered))
+```
+The feature matrix before filtering had 16,761 genes. This matrix has only the most mutated genes (>=51 patients) and only has 17 genes.
 
-contingency_matrix <- table(important_mutations_full_data$Hugo_Symbol,important_mutations_full_data$Tumor_Sample_Barcode_Cleaned)
-
-contingency_matrix[contingency_matrix > 1 ] <- 1
-
+```{r}
+#Convert to dataframe
 library(tidyverse)
+feature_df_filtered <- as.data.frame(feature_mat_filtered)
+feature_df_filtered <- pivot_wider(feature_df_filtered, names_from = Var2, values_from = Freq)
+# Save the patients
+patient.order <- feature_df_filtered$Var1
+# Remove the patients column
+feature_df_filtered <- feature_df_filtered[, -1]
 
-Mutation_frame <- as.data.frame(contingency_matrix)
+```
 
-#reassign column and row names to look like "matrix"
-Mutation_frame <- pivot_wider(Mutation_frame, names_from = Var2, values_from = Freq)
-patient_order <- Mutation_frame$Var2
+```{r}
+#Filter for the top ~20 mutated genes
+quantile(colSums(feature_mat), probs = 0.999)
+#Therefore any genes with 28 or more mutations are in the 99.9th percentile.
 
-mutation_data <- t(Mutation_frame[ , -1])
+```
 
-mutation.kmeans <- kmeans(mutation_data, 2)
-#ovarian.kmeans.prediction <- ifelse(ovarian.kmeans$cluster == 1, "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o","p")
+```{r}
+#plot using 5 centers as subgroups of ovarian cancer
+set.seed(236)
+mutation.kmeans <- kmeans(feature_df_filtered, 5)
 
 library(ggplot2)
 library(factoextra)
+
+
 fviz_cluster(mutation.kmeans, 
-             data = mutation_data,
+             data = feature_df_filtered,
              main = 'Mutation Dataset clustering: K-means method',
              geom = 'point')
-
+```
+```{r}
+#size of clusters
 print(sum(mutation.kmeans$cluster == 1))
 print(sum(mutation.kmeans$cluster == 2))
-
-#Filter top 20 genes
-
-
-
-#library(mclust)
-
-# Assuming you have a binary matrix called contingency_table
-# Replace this with your actual binary matrix
-
-# Fit a Bernoulli Mixture Model
-#model <- Mclust(Mutation_frame, G = 2)  # G is the number of components (clusters)
-
-# Print the summary of the model
-#summary(model)
-
-# Plot the clusters
-#plot(model, what = "classification")
+print(sum(mutation.kmeans$cluster == 3))
+print(sum(mutation.kmeans$cluster == 4))
+print(sum(mutation.kmeans$cluster == 5))
 ```
 
 
 ```{r}
-contingency_matrix <- table(important_mutations_full_data$Hugo_Symbol,important_mutations_full_data$Tumor_Sample_Barcode_Cleaned)
-
-contingency_matrix[contingency_matrix > 1 ] <- 1
-
-Mutation_frame <- as.data.frame(contingency_matrix)
-
-na_count <- sum(is.na(Mutation_frame))
-na_count
-
-mutation.kmeans <- kmeans(Mutation_frame, 2)
-
-library(ggplot2)
-library(factoextra)
-library(tidyverse)
-
-
-fviz_cluster(mutation.kmeans, 
-             data = Mutation_frame,
-             main = 'Mutation Dataset clustering: K-means method',
-             geom = 'point')
+#Clustering using ward method
+set.seed(123)
+dist_mat <- dist(feature_df_filtered, method = 'binary')
+hclust_ward <- hclust(dist_mat, method = 'ward.D')
 ```
 
+```{r}
+cut_ward <- cutree(hclust_ward, h = 40)
+plot(hclust_ward, main = "Hierarchical Clustering Dendogram")
+rect.hclust(hclust_ward, h = 40, border = 2:6)
+abline(h = 40, col = 'red')
+```
+
+```{r}
+
+#OS_MONTHS indicates the number of months from time of diagnosis to time of death or last follow up
+clinical_cleaned <- clinicalData[which(clinicalData$PATIENT_ID %in% unique.patients.full.data) ,]
+
+survival_DF <- data.frame(deceased = clinical_cleaned$OS_STATUS == "1:DECEASED")
+
+#Create a column of months to death from diagnosis
+indices <- which(clinical_cleaned$OS_STATUS == "1:DECEASED")
+
+survival_DF$days_to_death = rep(NA, length(unique.patients.full.data))
+a <- 0
+for(i in indices) {
+  survival_DF$days_to_death[i] = clinical_cleaned$OS_MONTHS[i]
+  a = a + 1
+}
+
+#Create a column of months of progression free disease
+survival_DF$progression_free = clinical_cleaned$PFS_MONTHS
+```
+
+
+```{r}
+#SURVIVAL ANALYSIS
+
+# create an "overall survival" variable that is equal to days_to_death
+# for dead patients, and to progression free disease for patients who
+# are still alive
+survival_DF$overall_survival = ifelse(survival_DF$deceased,
+                                   survival_DF$days_to_death,
+                                   survival_DF$progression_free)
+#Assign the bmiClass vector containing results to the clinical dataframe
+
+#Shows first 10 samples
+head(survival_DF)
+
+#Create a vector containing cluster groups for simplification
+survival_DF$cluster_groups <- cut_ward
+
+#Now that the survival time has been tagged with the censoring, we can add the categorical independent variable  `cluster groups`, and effectively create a formula
+
+Surv(survival_DF$overall_survival, survival_DF$deceased) ~ survival_DF$cluster_groups
+
+fit = survfit(Surv(overall_survival, deceased) ~ cluster_groups, data=survival_DF)
+
+library("survival")
+library("survminer")
+library(ggplot2)
+ggsurvplot(fit, data=survival_DF)
+
+```
