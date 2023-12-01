@@ -1,6 +1,4 @@
 ```{r}
-# MAKE SURE THE WD IS THE ROOT PROJECT FOLDER
-
 # Get the data
 data.clinical <- read.delim("data/data_clinical_patient.txt", sep = "\t", header = TRUE, comment.char = "#")
 data.mutation <- read.delim("data/data_mutations.txt", sep = "\t", header = TRUE, comment.char = "#")
@@ -46,7 +44,7 @@ str(feature_mat_filtered)
 ```
 The feature matrix before filtering had 16503 genes. This matrix has only the most mutated genes (>51 patients) and only has 17 genes.
 
-```{r message = FALSE}
+```{r warning = FALSE}
 library(tidyverse)
 feature_df_filtered <- as.data.frame(feature_mat_filtered)
 feature_df_filtered <- pivot_wider(feature_df_filtered, names_from = Var2, values_from = Freq)
@@ -77,7 +75,7 @@ ggplot(data, aes(x = column, y = frequency)) +
 ```
 
 PCA:
-```{r warning = FALSE}
+```{r warning=FALSE, message=FALSE}
 feature.pca <- prcomp(feature_df_filtered, center = TRUE)
 
 library(ggbiplot)
@@ -94,10 +92,10 @@ dist_mat <- dist(feature_df_filtered, method = 'binary')
 hclust_ward <- hclust(dist_mat, method = 'ward.D')
 ```
 ```{r}
-cut_ward <- cutree(hclust_ward, h = 40)
+cut_ward <- cutree(hclust_ward, k = 2)
 plot(hclust_ward, main = "Hierarchical Clustering Dendogram")
-rect.hclust(hclust_ward, h = 40, border = 2:6)
-abline(h = 40, col = 'red')
+rect.hclust(hclust_ward, k = 2, border = 2:6)
+abline(h = 10, col = 'red')
 ```
 ```{r}
 cluster.size.hc <- table(cut_ward)
@@ -113,12 +111,34 @@ dist_mat_pca <- dist(feature.pca$x[,1:12], method = 'euclidean')
 hclust_pca <- hclust(dist_mat_pca, method = 'ward.D')
 ```
 ```{r}
-cut_pca <- cutree(hclust_pca, k=2)
+cut_pca <- cutree(hclust_pca, k=5)
 plot(hclust_pca, main = "PCA Hierarchical Clustering Dendogram")
-rect.hclust(hclust_pca,k=2, border = 2:6)
-#abline(h=80, col = 'red')
+rect.hclust(hclust_pca,k=5, border = 2:6)
+abline(h=120, col = 'red')
 ```
 ```{r}
+cut_pca <- as.data.frame(cut_pca)
 cluster.size.hc.pca <- table(cut_pca)
 cluster.size.hc.pca
+```
+
+
+```{r}
+idx <- which(data.clinical$PATIENT_ID %in% patient.order)
+
+
+clust.sub.data <- data.frame(Patient = data.clinical$PATIENT_ID[idx], 
+                             Subtype = data.clinical$SUBTYPE[idx], 
+                             Clusters = cut_pca)
+
+library(RColorBrewer)
+
+ggplot(clust.sub.data, aes(x = cut_pca, fill = Subtype)) +
+  geom_bar(position = "dodge") +
+  labs(title = "Bar Plot of Subtypes within Clusters",
+       x = "Cluster",
+       y = "Count") +
+  scale_fill_brewer(palette = "Set1", name = "Subtype") +
+  theme_minimal() +  # Customize the theme if needed
+  theme(legend.position = "top")
 ```
