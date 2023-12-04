@@ -1,7 +1,9 @@
 
 ```{r}
 # Assuming the mutation_analysis has already been run and clusters have been generated.
-clusters <- list(cluster1, cluster2)
+cluster.assignments <- cut_pca
+head(cluster.assignments)
+table(cluster.assignments)
 ```
 
 ```{r}
@@ -19,41 +21,451 @@ patient.ids <- colnames(data.expression)
 patient.ids.shortened <- substr(patient.ids, 1, 12)
 patient.ids.shortened.sub <- gsub("\\.", "-", patient.ids.shortened)
 colnames(data.expression) <- patient.ids.shortened.sub
+
+# Get the data from patients with full data
+data.expression <- data.expression[, unique.patients.full.data]
 ```
 
 ```{r}
 # Filter out genes that only have 0 or 1 read counts accross all samples
 counts <- data.expression[rowSums(data.expression) > 1, ]
-# Make rows == samples and columns == genes
-counts <- t(counts)
 ```
 
 # Exploratory Analysis and Visualization
 
 ```{r}
-# Because the dist matrix is symmetrical, upper just puts the values on both 
-# the upper and lower sides
-countDists <- dist(counts, upper = TRUE)
+counts.df <- as.data.frame(counts)
 ```
 
 ```{r}
-# Function that takes an ordered list of patient ids, and a list of patient
-# clusters, returns a ordered list of which cluster each patient is in
+library(ggplot2)
+p1 <- ggplot(data = counts.df, aes(x = counts.df$`TCGA-3C-AAAU`)) + 
+  geom_histogram(bins = 50) + 
+  labs(title = "Raw Data")
 
-clusterLabels <- match(colnames(data.expression), clusters)
-clusterLabels <- function(patient.ids, clusters) {
-  
-}
+log2.counts.df <- as.data.frame(log(counts + 1, base = 2))
+p2 <- ggplot(data = log2.counts.df, aes(x = log2.counts.df$`TCGA-3C-AAAU`)) +
+  geom_histogram(bins = 50) + 
+  labs(title = "Log Transformed")
 
-"TCGA-GM-A4E0" %in% clusters
+library("gridExtra")
+grid.arrange(p1, p2, ncol = 2)
+```
 
-get.patient.cluster <- function(patient.id) {
-  id.in.cluster <- function(id, cluster) {id %in% cluster}
-  Position(function(x) id.in.cluster(patient.id, x), clusters)
-}
-lapply(rownames(counts), get.patient.cluster)
+```{r}
+# Make the study design dataframe
+cluster.assignments.df <- as.data.frame(factor(cluster.assignments))
+
+rownames(cluster.assignments.df) <- colnames(counts.df)
+colnames(cluster.assignments.df) <- c("cluster")
+```
+
+```{r, message=FALSE}
+library(DESeq2)
+dds = DESeqDataSetFromMatrix(countData=counts,
+                              colData=cluster.assignments.df,
+                              design=~cluster)
+```
+
+```{r}
+dds = DESeq(dds)
+dds
+```
+
+```{r}
+res <- results(dds, contrast = c("cluster", 3, 5))
+res
+```
+
+```{r}
+summary(res)
+```
+
+```{r}
+plotMA(res, ylim = c(-3, 3))
+```
+
+```{r}
+# Variance stabalizing transform
+vst <- vst(dds, blind = FALSE)
+```
+
+
+```{r}
+# Select the top 20 differentially expressed genes
+de.genes <- order(res$padj, decreasing = FALSE)[1:20]
+```
+
+```{r}
+# sampleDists = dist(t(assay(vst)), upper = TRUE)
+
+sampleMatrix <- assay(vst)[de.genes,]
+rownames(sampleMatrix) = rownames(counts[de.genes,])
+colnames(sampleMatrix) = colnames(counts)
+
+library(pheatmap)
+pheatmap(sampleMatrix,
+         cluster_rows=FALSE, 
+         show_rownames=TRUE,
+         show_colnames = FALSE,
+         cluster_cols=TRUE,
+         annotation_col=cluster.assignments.df)
+```
+
+```{r}
+sampleMatrix <- assay(vst)[de.genes,]
+rownames(sampleMatrix) = rownames(counts[de.genes,])
+colnames(sampleMatrix) = colnames(counts)
+
+library(pheatmap)
+pheatmap(sampleMatrix,
+         cluster_rows=FALSE, 
+         show_rownames=TRUE,
+         show_colnames = FALSE,
+         cluster_cols=TRUE,
+         annotation_col=cluster.assignments.df)
+```
+
+```{r}
+# Add gene annotations
+library("AnnotationDbi")
+library("org.Hs.eg.db")
+columns(org.Hs.eg.db)
+```
+
+```{r}
+gene.names.cleaned <- sapply(strsplit(row.names(res), "\\."), "[", 1)
+res$symbol = mapIds(org.Hs.eg.db,
+                    keys=gene.names.cleaned, 
+                    column="SYMBOL",
+                    keytype="ENSEMBL",
+                    multiVals="first")
+```
+
+```{r}
+res$entrez = mapIds(org.Hs.eg.db,
+                    keys=gene.names.cleaned, 
+                    column="ENTREZID",
+                    keytype="ENSEMBL",
+                    multiVals="first")
+```
+
+```{r}
+res$name =   mapIds(org.Hs.eg.db,
+                    keys=gene.names.cleaned, 
+                    column="GENENAME",
+                    keytype="ENSEMBL",
+                    multiVals="first")
+```
+
+```{r}
+# Pathway analysis
+library(pathview)
+library(gage)
+library(gageData)
+
+data(kegg.sets.hs)
+data(sigmet.idx.hs)
+
+# Focus on signaling and metabolic pathways only
+kegg.sets.hs = kegg.sets.hs[sigmet.idx.hs]
+```
+
+```{r}
+fold.changes <- res$log2FoldChange
+names(fold.changes) <- res$entrez
+head(fold.changes)
+```
+
+```{r}
+# Gage pathway analysis
+kegg.res = gage(fold.changes, gsets=kegg.sets.hs)
+```
+
+```{r}
+head(kegg.res$less)
+```
+
+```{r}
+head(kegg.res$greater)
+```
+
+# Cluster Expression Data
+
+```{r}
+head(counts.df)
+```
+
+```{r}
+# Perform CPM normalization
+cpm <- counts.df * 10^6  / rowSums(counts.df)
+head(cpm)
+```
+```{r}
+# Log-transform the CPM counts
+log.cpm <- log(cpm + 1, base = 2)
+# Z-score transform the CPM counts?
+```
+
+```{r}
+# Select the top 100 variable genes
+log.cpm.t <- as.data.frame(t(log.cpm))
+most.variable.genes <- order(sapply(log.cpm.t, sd), decreasing = TRUE)[1:100]
+```
+
+
+
+```{r}
+log.cpm.genes <- as.data.frame(t(log.cpm[most.variable.genes, ]))
+log.cpm.pca <- prcomp(log.cpm.genes, scale = TRUE, center = TRUE)
+library(ggbiplot)
+ggbiplot(log.cpm.pca, var.axes = FALSE, ellipse = TRUE)
+```
+
+```{r}
+# Cluster genes based on expression of top 100 varible genes
+expression.dist <- dist(log.cpm.pca$x)
+expression.ward <- hclust(expression.dist, method = 'ward.D')
+```
+
+```{r}
+CUT_HEIGHT <- 150
+cut_ward_expression <- cutree(expression.ward, h = CUT_HEIGHT)
+plot(expression.ward, main = "Hierarchical Clustering Dendogram")
+rect.hclust(expression.ward, h = CUT_HEIGHT, border = 2:6)
+abline(h = CUT_HEIGHT, col = 'red')
+```
+```{r}
+annotation <- as.data.frame(cut_ward_expression)
+rownames(annotation) <- rownames(log.cpm.t)
+colnames(annotation) <- c("cluster")
+
+expression.dist.mat <- as.matrix(expression.dist)
+rownames(expression.dist.mat) <- rownames(log.cpm.t)
+colnames(expression.dist.mat) <- rownames(log.cpm.t)
+
+library(pheatmap)
+pheatmap(expression.dist.mat,
+         cluster_rows=TRUE, 
+         show_rownames=FALSE,
+         cluster_cols=TRUE,
+         annotation_col=annotation,
+         clustering_method = "ward.D")
+```
+
+
+
+```{r, message=FALSE}
+# Perform DESeq on the expression analysis clusters
+library(DESeq2)
+expression.clusters <- as.data.frame(cut_ward_expression)
+rownames(expression.clusters) <- rownames(log.cpm.t)
+colnames(expression.clusters) <- "cluster"
+dds.expression = DESeqDataSetFromMatrix(countData=counts,
+                              colData=expression.clusters,
+                              design=~cluster)
 
 ```
+
+```{r}
+dds.expression <- DESeq(dds.expression)
+```
+
+
+```{r}
+res.expression <- results(dds.expression)
+res.expression
+```
+
+```{r}
+summary(res.expression)
+```
+
+```{r}
+plotMA(res.expression, ylim = c(-3, 3))
+```
+
+```{r}
+# Add gene annotations
+library("AnnotationDbi")
+library("org.Hs.eg.db")
+columns(org.Hs.eg.db)
+```
+
+```{r}
+gene.names.cleaned.expression <- sapply(strsplit(row.names(res.expression), "\\."), "[", 1)
+res.expression$symbol = mapIds(org.Hs.eg.db,
+                    keys=gene.names.cleaned.expression, 
+                    column="SYMBOL",
+                    keytype="ENSEMBL",
+                    multiVals="first")
+```
+
+```{r}
+res.expression$entrez = mapIds(org.Hs.eg.db,
+                        keys=gene.names.cleaned.expression, 
+                        column="ENTREZID",
+                        keytype="ENSEMBL",
+                        multiVals="first")
+```
+
+```{r}
+res.expression$name = mapIds(org.Hs.eg.db,
+                      keys=gene.names.cleaned.expression, 
+                      column="GENENAME",
+                      keytype="ENSEMBL",
+                      multiVals="first")
+```
+
+```{r}
+# Pathway analysis
+library(pathview)
+library(gage)
+library(gageData)
+
+data(kegg.sets.hs)
+data(sigmet.idx.hs)
+
+# Focus on signaling and metabolic pathways only
+kegg.sets.hs = kegg.sets.hs[sigmet.idx.hs]
+```
+
+```{r}
+fold.changes <- res.expression$log2FoldChange
+names(fold.changes) <- res.expression$entrez
+head(fold.changes)
+```
+
+```{r}
+# Gage pathway analysis
+kegg.res = gage(fold.changes, gsets=kegg.sets.hs)
+```
+
+```{r}
+head(kegg.res$less)
+```
+
+```{r}
+upreg <- kegg.res$greater
+head(upreg)
+```
+
+
+
+# Mutation analysis with expression clusters
+Assuming the mutation analysis was already done
+
+```{r}
+data.mutation <- read.delim("data/data_mutations.txt", sep = "\t", header = TRUE, comment.char = "#")
+
+# Make a new column with the cleaned patient ID (same as other datasets)
+data.mutation$Tumor_Sample_Barcode_Cleaned <- substr(data.mutation$Tumor_Sample_Barcode, 1, 12)
+
+# Non-coding transcript exon variant?
+important_mutations <- data.mutation[which(data.mutation$IMPACT %in% c("HIGH", "MODERATE")), ]
+
+# Get the important mutations for full-data patients
+important_mutations_full_data <- important_mutations[which(important_mutations$Tumor_Sample_Barcode_Cleaned %in% unique.patients.full.data), ]
+
+# Make feature matrix
+feature_mat <- table(important_mutations_full_data$Tumor_Sample_Barcode_Cleaned, important_mutations_full_data$Hugo_Symbol)
+
+# Turn into binary matrix
+feature_mat[feature_mat > 1] <- 1
+```
+
+Filter for the top mutated genes
+```{r}
+feature_mat_filtered <- feature_mat[, colSums(feature_mat) >= 51]
+```
+
+```{r}
+library(tidyverse)
+feature_df_filtered <- as.data.frame(feature_mat_filtered)
+feature_df_filtered <- pivot_wider(feature_df_filtered, names_from = Var2, values_from = Freq)
+# Save the patients
+patient.order <- feature_df_filtered$Var1
+rownames(feature_df_filtered) <- patient.order
+# Remove the patients column
+feature_df_filtered <- feature_df_filtered[, -1]
+```
+
+
+```{r}
+library(ggplot2)
+feature_df_filtered_patient <- feature_df_filtered
+feature_df_filtered_patient$patient <- patient.order
+feature_df_filtered_patient$cluster <- cut_ward_expression
+feature_df_filtered.long <- pivot_longer(feature_df_filtered_patient, !c(patient, cluster))
+feature_df_filtered.long <- feature_df_filtered.long[feature_df_filtered.long$value == 1,]
+mutation.table <- as.data.frame(table(feature_df_filtered.long$cluster, feature_df_filtered.long$name))
+
+ggplot(data = mutation.table, aes(x = Var2, y = Freq, fill = Var1)) + 
+  geom_col()
+
+```
+
+# Survival Analysis: Aadesh's Code
+```{r}
+#OS_MONTHS indicates the number of months from time of diagnosis to time of death or last follow up
+clinical_cleaned <- data.clinical[which(data.clinical$PATIENT_ID %in% unique.patients.full.data) ,]
+
+survival_DF <- data.frame(deceased = clinical_cleaned$OS_STATUS == "1:DECEASED")
+
+#Create a column of months to death from diagnosis
+indices <- which(clinical_cleaned$OS_STATUS == "1:DECEASED")
+
+survival_DF$days_to_death = rep(NA, length(unique.patients.full.data))
+a <- 0
+for(i in indices) {
+  survival_DF$days_to_death[i] = clinical_cleaned$OS_MONTHS[i]
+  a = a + 1
+}
+
+#Create a column of months of progression free disease
+survival_DF$progression_free = clinical_cleaned$PFS_MONTHS
+```
+
+
+```{r}
+library("survival")
+library("survminer")
+library(ggplot2)
+#SURVIVAL ANALYSIS on expression clusters
+
+# create an "overall survival" variable that is equal to days_to_death
+# for dead patients, and to progression free disease for patients who
+# are still alive
+survival_DF$overall_survival = ifelse(survival_DF$deceased,
+                                   survival_DF$days_to_death,
+                                   survival_DF$progression_free)
+#Assign the bmiClass vector containing results to the clinical dataframe
+
+#Shows first 10 samples
+head(survival_DF)
+
+#Create a vector containing cluster groups for simplification
+survival_DF$cluster_groups <- cut_ward_expression
+
+#Now that the survival time has been tagged with the censoring, we can add the categorical independent variable  `cluster groups`, and effectively create a formula
+
+Surv(survival_DF$overall_survival, survival_DF$deceased) ~ survival_DF$cluster_groups
+
+fit = survfit(Surv(overall_survival, deceased) ~ cluster_groups, data=survival_DF)
+
+ggsurvplot(fit, data=survival_DF)
+```
+
+```{r}
+cluster.results.df <- as.data.frame(patient.order)
+colnames(cluster.results.df) <- "patient"
+cluster.results.df$mutation <- cut_pca
+cluster.results.df$expression <- cut_ward_expression
+
+cluster.results.table <- table(cluster.results.df$mutation, cluster.results.df$expression)
+cluster.results.table
+```
+
 
 
 

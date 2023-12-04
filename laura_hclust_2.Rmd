@@ -1,4 +1,3 @@
-
 ```{r}
 # MAKE SURE THE WD IS THE ROOT PROJECT FOLDER
 
@@ -35,26 +34,11 @@ feature_mat[feature_mat > 1] <- 1
 
 Clustering
 
-Below I have tried PCA, which does not work on this large, sparse dataset.
-```{r}
-# Perform PCA on the feature matrix
-feature.pca <- prcomp(feature_mat, center = TRUE)
-```
-
-```{r}
-library(ggbiplot)
-ggbiplot(feature.pca, var.axes = FALSE, ellipse = TRUE)
-
-summary(feature.pca)
-```
-
-PCA does not do a good job seperating the large dataset, so we will continue without it.
-
 Filter for the top ~20 mutated genes
 ```{r}
 quantile(colSums(feature_mat), probs = 0.999)
 ```
-Therefore, any genes with 9 or more mutations are in the 99.9th percentile.
+Therefore, any genes with 51 or more mutations are in the 99.8th percentile.
 
 ```{r}
 feature_mat_filtered <- feature_mat[, colSums(feature_mat) >= 51]
@@ -62,7 +46,7 @@ str(feature_mat_filtered)
 ```
 The feature matrix before filtering had 16503 genes. This matrix has only the most mutated genes (>51 patients) and only has 17 genes.
 
-```{r}
+```{r message = FALSE}
 library(tidyverse)
 feature_df_filtered <- as.data.frame(feature_mat_filtered)
 feature_df_filtered <- pivot_wider(feature_df_filtered, names_from = Var2, values_from = Freq)
@@ -72,38 +56,69 @@ patient.order <- feature_df_filtered$Var1
 feature_df_filtered <- feature_df_filtered[, -1]
 ```
 
-
-Try PCA:
+Visualize most mutated genes
 ```{r}
+library(ggplot2)
+
+# Create frequency table
+freq <- colSums(feature_df_filtered == 1)
+
+# Convert frequency table to a data frame
+data <- data.frame(column = names(freq), frequency = freq)
+
+# Sort the data frame by frequency in descending order
+data <- data[order(data$frequency, decreasing = TRUE), ]
+
+# Create a bar plot using ggplot
+ggplot(data, aes(x = column, y = frequency)) +
+  geom_col() + theme(axis.text.x = element_text(angle = 45,hjust=1)) + 
+  scale_x_discrete(limits = data$column) +
+  labs(x = "Mutated Genes", y = "Frequency (# of patients)")
+```
+
+PCA:
+```{r warning = FALSE}
 feature.pca <- prcomp(feature_df_filtered, center = TRUE)
 
 library(ggbiplot)
 ggbiplot(feature.pca, var.axes = FALSE, ellipse = TRUE)
-
 summary(feature.pca)
 ```
 
-K means clustering:
+Hierarchical clustering:
 
+We performed hierarchical clustering on the filtered data using single linkage, average linkage, complete linkage and Ward linkage methods. The Ward method yielded the most evenly distributed clusters.
 ```{r}
 set.seed(123)
-feature.kmeans <- kmeans(feature_df_filtered, 2)
-print(sum(feature.kmeans$cluster == 1))
-print(sum(feature.kmeans$cluster == 2))
+dist_mat <- dist(feature_df_filtered, method = 'binary')
+hclust_ward <- hclust(dist_mat, method = 'ward.D')
 ```
-
-By spliting the data into two clusters, one has 660 patients and the other has 346 clusters.
-
 ```{r}
-# Get the patients in each cluster
-cluster1 <- patient.order[ifelse(feature.kmeans$cluster == 1, TRUE, FALSE)]
-cluster2 <- patient.order[ifelse(feature.kmeans$cluster == 2, TRUE, FALSE)]
+cut_ward <- cutree(hclust_ward, h = 40)
+plot(hclust_ward, main = "Hierarchical Clustering Dendogram")
+rect.hclust(hclust_ward, h = 40, border = 2:6)
+abline(h = 40, col = 'red')
+```
+```{r}
+cluster.size.hc <- table(cut_ward)
+cluster.size.hc
 ```
 
+Next, we performed hierarchical clustering on the PCA data.
+```{r}
+set.seed(123)
 
-
-
-
-
-
-
+#Use top 12 pcs to perserve ~85% of the variance
+dist_mat_pca <- dist(feature.pca$x[,1:12], method = 'euclidean')
+hclust_pca <- hclust(dist_mat_pca, method = 'ward.D')
+```
+```{r}
+cut_pca <- cutree(hclust_pca, k=5)
+plot(hclust_pca, main = "PCA Hierarchical Clustering Dendogram")
+rect.hclust(hclust_pca,k=5, border = 2:6)
+#abline(h=80, col = 'red')
+```
+```{r}
+cluster.size.hc.pca <- table(cut_pca)
+cluster.size.hc.pca
+```
