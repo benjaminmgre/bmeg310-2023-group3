@@ -1,3 +1,10 @@
+```{r warning = FALSE, message = FALSE}
+library(tidyverse)
+library(ggplot2)
+library(ggbiplot)
+library(RColorBrewer)
+```
+
 ```{r}
 # Get the data
 data.clinical <- read.delim("data/data_clinical_patient.txt", sep = "\t", header = TRUE, comment.char = "#")
@@ -17,26 +24,24 @@ unique.patients.full.data <- Reduce(intersect, list(mutation.patients, clinical.
 # Make a new column with the cleaned patient ID (same as other datasets)
 data.mutation$Tumor_Sample_Barcode_Cleaned <- substr(data.mutation$Tumor_Sample_Barcode, 1, 12)
 
-# Non-coding transcript exon variant?
+# Filter out low impact and modifier mutations
 important_mutations <- data.mutation[which(data.mutation$IMPACT %in% c("HIGH", "MODERATE")), ]
 
 # Get the important mutations for full-data patients
 important_mutations_full_data <- important_mutations[which(important_mutations$Tumor_Sample_Barcode_Cleaned %in% unique.patients.full.data), ]
 
-# Make feature matrix
+# Make feature matrix of mutated genes for each patient
 feature_mat <- table(important_mutations_full_data$Tumor_Sample_Barcode_Cleaned, important_mutations_full_data$Hugo_Symbol)
 
-# Turn into binary matrix
+# Turn into binary matrix where 1 indicates mutation and 0 indicates no mutation
 feature_mat[feature_mat > 1] <- 1
 ```
 
-Clustering
-
-Filter for the top ~20 mutated genes
 ```{r}
+# Filter for the top ~20 mutated genes
 quantile(colSums(feature_mat), probs = 0.999)
 ```
-Therefore, any genes with 51 or more mutations are in the 99.8th percentile.
+Therefore, any genes with 51 or more mutations are in the 99.9th percentile.
 
 ```{r}
 feature_mat_filtered <- feature_mat[, colSums(feature_mat) >= 51]
@@ -45,19 +50,19 @@ str(feature_mat_filtered)
 The feature matrix before filtering had 16503 genes. This matrix has only the most mutated genes (>51 patients) and only has 17 genes.
 
 ```{r warning = FALSE}
-library(tidyverse)
+# Convert feature matrix to data frame
 feature_df_filtered <- as.data.frame(feature_mat_filtered)
 feature_df_filtered <- pivot_wider(feature_df_filtered, names_from = Var2, values_from = Freq)
-# Save the patients
+
+# Save the patients column
 patient.order <- feature_df_filtered$Var1
+
 # Remove the patients column
 feature_df_filtered <- feature_df_filtered[, -1]
 ```
 
-Visualize most mutated genes
+We will now visualize the most mutated genes using a bar plot.
 ```{r}
-library(ggplot2)
-
 # Create frequency table
 freq <- colSums(feature_df_filtered == 1)
 
@@ -67,78 +72,128 @@ data <- data.frame(column = names(freq), frequency = freq)
 # Sort the data frame by frequency in descending order
 data <- data[order(data$frequency, decreasing = TRUE), ]
 
-# Create a bar plot using ggplot
+# Create a bar plot to visualize the most mutated genes
 ggplot(data, aes(x = column, y = frequency)) +
   geom_col() + theme(axis.text.x = element_text(angle = 45,hjust=1)) + 
   scale_x_discrete(limits = data$column) +
   labs(x = "Mutated Genes", y = "Frequency (# of patients)")
 ```
 
-PCA:
+# Clustering
+## PCA:
 ```{r warning=FALSE, message=FALSE}
+# Perform PCA
 feature.pca <- prcomp(feature_df_filtered, center = TRUE)
 
-library(ggbiplot)
+# Plot the top 2 PCs and look at PCA summary
 ggbiplot(feature.pca, var.axes = FALSE, ellipse = TRUE)
 summary(feature.pca)
 ```
 
-Hierarchical clustering:
+## Hierarchical clustering:
 
-We performed hierarchical clustering on the filtered data using single linkage, average linkage, complete linkage and Ward linkage methods. The Ward method yielded the most evenly distributed clusters.
+We performed hierarchical clustering on the filtered data using single linkage, average linkage, complete linkage and Ward linkage methods. The Ward method yielded the most evenly distributed clusters. We chose to cut the tree at k=3 as the PCA yielded 3 clusters.
 ```{r}
-set.seed(123)
+# Perform hierarchical clustering
 dist_mat <- dist(feature_df_filtered, method = 'binary')
 hclust_ward <- hclust(dist_mat, method = 'ward.D')
 ```
 ```{r}
-cut_ward <- cutree(hclust_ward, k = 2)
+# Cut tree at k=3 to create 3 clusters
+cut_ward <- cutree(hclust_ward, k = 3)
+
+# Plot a dendogram to visualize clusters
 plot(hclust_ward, main = "Hierarchical Clustering Dendogram")
-rect.hclust(hclust_ward, k = 2, border = 2:6)
-abline(h = 10, col = 'red')
+rect.hclust(hclust_ward, k = 3, border = 2:6)
+abline(h = 60, col = 'red')
 ```
 ```{r}
+# Look at cluster sizes
 cluster.size.hc <- table(cut_ward)
 cluster.size.hc
 ```
 
-Next, we performed hierarchical clustering on the PCA data.
+Next, we performed hierarchical clustering on the PCA data. We chose to preserve 85% percent of the data as this gave us the most evenly distributed and distinct clusters. We ran the clustering using single linkage, average linkage, complete linkage and Ward linkage methods. The Ward method yielded the best clusters. Again, we cut the tree at k=3 as our PCA yielded 3 clusters.
 ```{r}
-set.seed(123)
-
-#Use top 12 pcs to perserve ~85% of the variance
+# Use top 12 PCs to preserve ~85% of the variance
 dist_mat_pca <- dist(feature.pca$x[,1:12], method = 'euclidean')
+
+# Perform hierarchical clustering
 hclust_pca <- hclust(dist_mat_pca, method = 'ward.D')
 ```
 ```{r}
-cut_pca <- cutree(hclust_pca, k=5)
+# Cut tree at k=3 to create 3 clusters
+cut_pca <- cutree(hclust_pca, k=3)
+
+# Plot a dendogram to visualize clusters
 plot(hclust_pca, main = "PCA Hierarchical Clustering Dendogram")
-rect.hclust(hclust_pca,k=5, border = 2:6)
+rect.hclust(hclust_pca,k=3, border = 2:6)
 abline(h=120, col = 'red')
 ```
 ```{r}
+# Look at cluster sizes
 cut_pca <- as.data.frame(cut_pca)
 cluster.size.hc.pca <- table(cut_pca)
 cluster.size.hc.pca
 ```
 
-
+The hierarchical clustering on our PCA data yielded better, more distinct and more evenly distributed clusters therefore, we will continue our analysis using those 3 clusters.
 ```{r}
+# Find indices of all patients in the clinical data that have been clustered (1006 patients)
 idx <- which(data.clinical$PATIENT_ID %in% patient.order)
 
-
+# Create a data frame containing the patient ID, their BRCA subtype and their cluster assignment
 clust.sub.data <- data.frame(Patient = data.clinical$PATIENT_ID[idx], 
                              Subtype = data.clinical$SUBTYPE[idx], 
                              Clusters = cut_pca)
 
-library(RColorBrewer)
-
+# Visualize the BRCA suptypes within each cluster using a bar plot
 ggplot(clust.sub.data, aes(x = cut_pca, fill = Subtype)) +
   geom_bar(position = "dodge") +
   labs(title = "Bar Plot of Subtypes within Clusters",
        x = "Cluster",
        y = "Count") +
-  scale_fill_brewer(palette = "Set1", name = "Subtype") +
-  theme_minimal() +  # Customize the theme if needed
-  theme(legend.position = "top")
+  scale_fill_brewer(palette = "Set2", name = "Subtype")
 ```
+Cluster 1 has luminal A as the most prominent subtype with luminal B as the next. This is similar to cluster 3 however the luminal A subtype prominence is much more distinct in cluster 3. Cluster 2 contains a more even distribution of the basal-like, luminal A and luminal B subtypes with slight HER2 prominence as well. Basal-like is the most highly expressed subtype in cluster 2.
+
+Next, we looked at the most frequently mutated genes in each cluster to observe any concordance with current literature on the different BRCA subtypes. 
+```{r}
+# This function takes the cluster number as an input and returns a frequency table data frame of mutated genes in the cluster
+freqData <- function(clust) {
+  cluster <- feature_df_filtered[which(cut_pca == clust),]
+
+  # Create frequency table
+  freq <- colSums(cluster == 1)
+  
+  # Convert frequency table to a data frame
+  data <- data.frame(column = names(freq), frequency = freq)
+  
+  # Sort the data frame by frequency in descending order
+  data <- data[order(data$frequency, decreasing = TRUE), ]
+}
+```
+
+```{r}
+# Get mutation frequency data for each cluster
+clust.data1 <- freqData(1)
+clust.data2 <- freqData(2)
+clust.data3 <- freqData(3)
+
+# Create bar plots to visualize the most frequently mutated gene in each cluster
+ggplot(clust.data1, aes(x = column, y = frequency)) +
+  geom_col() + theme(axis.text.x = element_text(angle = 45,hjust=1)) + 
+  scale_x_discrete(limits = clust.data1$column) +
+  labs(x = "Mutated Genes", y = "Frequency")
+
+ggplot(clust.data2, aes(x = column, y = frequency)) +
+  geom_col() + theme(axis.text.x = element_text(angle = 45,hjust=1)) + 
+  scale_x_discrete(limits = clust.data2$column) +
+  labs(x = "Mutated Genes", y = "Frequency")
+
+ggplot(clust.data3, aes(x = column, y = frequency)) +
+  geom_col() + theme(axis.text.x = element_text(angle = 45,hjust=1)) + 
+  scale_x_discrete(limits = clust.data3$column) +
+  labs(x = "Mutated Genes", y = "Frequency")
+```
+Cluster 2 has TP53 as its most frequent mutated gene. As basal-like is the most prominent subtype in cluster 2, this result is consistent with literature stating that TP53 is the most mutated and other mutations that were significant in luminal subtypes, such as CDH1 and MAP3K1, are absent [1]. Cluster 3 has PIK3CA as the most frequently mutated gene followed by CDH1 and MAP3K1. This is mostly consistent with literature about the luminal A subtype except for prominent mutations in GATA3, TP53 and MAP2K4 are missing in this cluster [1]. The most frequently mutated genes in cluster 1 do not correspond well with any specific subtypes based on literature [1]. Although it makes sense that this group has a high concentration of luminal A and B subtypes as GATA3 has been found to be frequently mutated in luminal-like breast cancers [2]. 
