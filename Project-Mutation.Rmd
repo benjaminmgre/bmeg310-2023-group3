@@ -68,6 +68,7 @@ feature_df_filtered <- pivot_wider(feature_df_filtered, names_from = Var2, value
 patient.order <- feature_df_filtered$Var1
 # Remove the patients column
 feature_df_filtered <- feature_df_filtered[, -1]
+#Matrix for pheatmap
 pheatmap_mat <- t(feature_df_filtered)
 
 ```
@@ -107,7 +108,11 @@ rect.hclust(hclust_ward, k = 2, border = 2:6)
 abline(h = 40, col = 'red')
 cut_ward
 ```
+
 ```{r}
+#Matrix for pheatmap
+pheatmap_mat <- t(feature_df_filtered)
+
 library(pheatmap)
 reduce.mat <- pheatmap_mat
 res <- pheatmap(reduce.mat,
@@ -149,13 +154,17 @@ cluster.size.hc.pca
 ```{r}
 
 #OS_MONTHS indicates the number of months from time of diagnosis to time of death or last follow up
+
+#Create a subset of the clinicalData containing only the patients with mutated genes after filtering
 clinical_cleaned <- clinicalData[which(clinicalData$PATIENT_ID %in% unique.patients.full.data) ,]
 
+#Create a data frame called survival with a vector that contains TRUE = dead and FALSE = alive
 survival_DF <- data.frame(deceased = clinical_cleaned$OS_STATUS == "1:DECEASED")
 
 #Create a column of months to death from diagnosis
 indices <- which(clinical_cleaned$OS_STATUS == "1:DECEASED")
 
+#Set all to NA first since patients who are not dead should not have an OS_months value
 survival_DF$days_to_death = rep(NA, length(unique.patients.full.data))
 
 for(i in indices) {
@@ -200,23 +209,19 @@ ggsurvplot(fit, data=survival_DF, pval=T)
 ```{r}
 #SURVIVAL ANALYSIS on 2 clusters WITHOUT PCA *HERE
 
-survival_DF$days_last_followup = clinical_cleaned$DAYS_LAST_FOLLOWUP/(365/12)
+survival_DF$progression_free = clinical_cleaned$PFS_MONTHS
 
 # create an "overall survival" variable that is equal to days_to_death
 # for dead patients, and to progression free disease for patients who
 # are still alive
 survival_DF$overall_survival = ifelse(survival_DF$deceased,
                                    survival_DF$days_to_death,
-                                   survival_DF$days_last_followup)
-#Assign the bmiClass vector containing results to the clinical dataframe
+                                   survival_DF$progression_free )
 
-#Shows first 10 samples
-head(survival_DF)
-
-#Create a vector containing cluster groups for simplification
+#Create a vector within survival dataframe containing cluster groups for labelling
 survival_DF$cluster_groups <- cut_ward
 
-#Now that the survival time has been tagged with the censoring, we can add the categorical independent variable  `cluster groups`, and effectively create a formula
+#Now that the survival time has been tagged with the censoring, we can add the categorical independent variable `cluster groups`, and effectively create a formula
 
 Surv(survival_DF$overall_survival, survival_DF$deceased) ~ survival_DF$cluster_groups
 
@@ -231,50 +236,84 @@ ggsurvplot(fit, data=survival_DF, pval=T)
 ```
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
 ```{r}
-cut_pca_5 <- cutree(hclust_pca, k=5)
-plot(hclust_pca, main = "PCA Hierarchical Clustering Dendogram")
-rect.hclust(hclust_pca,k=5, border = 2:6)
-#abline(h=80, col = 'red')
+#Plot the number of mutated genes within each cluster group 
+clust.sub.data <- data.frame(Patient = clinical_cleaned$PATIENT_ID, 
+                             Subtype = clinical_cleaned$SUBTYPE, 
+                             Clusters = cut_ward)
 
-cluster.size.5.pca <- table(cut_pca_5)
-cluster.size.5.pca
+library(RColorBrewer)
+
+ggplot(clust.sub.data, aes(x = cut_ward, fill = Subtype)) +
+  geom_bar(position = "dodge") +
+  labs(title = "Bar Plot of Subtypes within Clusters",
+       x = "Cluster",
+       y = "Count") +
+  scale_fill_brewer(palette = "Set1", name = "Subtype") +
+  theme_minimal() +  # Customize the theme if needed
+  theme(legend.position = "top")
 ```
 
+
+
+
+
+
+
+
+
+
 ```{r}
-#SURVIVAL ANALYSIS
+#Matrix for pheatmap
+pheatmap_mat <- t(feature_df_filtered)
 
-survival_DF$days_last_followup = clinical_cleaned$DAYS_LAST_FOLLOWUP/30.5
+library(pheatmap)
+reduce.mat <- pheatmap_mat
+res <- pheatmap(reduce.mat,
+         cluster_rows = F,
+         show_colnames=FALSE)
+```
 
+
+```{r}
+
+#OS_MONTHS indicates the number of months from time of diagnosis to time of death or last follow up
+
+#Create a subset of the clinicalData containing only the patients with mutated genes after filtering
+clinical_cleaned <- clinicalData[which(clinicalData$PATIENT_ID %in% unique.patients.full.data) ,]
+
+#Create a data frame called survival with a vector that contains TRUE = dead and FALSE = alive
+survival_DF <- data.frame(deceased = clinical_cleaned$OS_STATUS == "1:DECEASED")
+
+#Create a column of months to death from diagnosis
+indices <- which(clinical_cleaned$OS_STATUS == "1:DECEASED")
+
+#Set all to NA first since patients who are not dead should not have an OS_months value
+survival_DF$days_to_death = rep(NA, length(unique.patients.full.data))
+
+for(i in indices) {
+  survival_DF$days_to_death[i] = clinical_cleaned$OS_MONTHS[i]
+}
+
+```
+
+
+```{r}
+#SURVIVAL ANALYSIS on 2 clusters WITHOUT PCA *HERE
+
+survival_DF$progression_free = clinical_cleaned$PFS_MONTHS
 
 # create an "overall survival" variable that is equal to days_to_death
 # for dead patients, and to progression free disease for patients who
 # are still alive
 survival_DF$overall_survival = ifelse(survival_DF$deceased,
                                    survival_DF$days_to_death,
-                                   survival_DF$days_last_followup)
-#Assign the bmiClass vector containing results to the clinical dataframe
+                                   survival_DF$progression_free )
 
-#Shows first 10 samples
-head(survival_DF)
+#Create a vector within survival dataframe containing cluster groups for labelling
+survival_DF$cluster_groups <- cut_ward
 
-#Create a vector containing cluster groups for simplification
-survival_DF$cluster_groups <- cut_pca_5
-
-#Now that the survival time has been tagged with the censoring, we can add the categorical independent variable  `cluster groups`, and effectively create a formula
+#Now that the survival time has been tagged with the censoring, we can add the categorical independent variable `cluster groups`, and effectively create a formula
 
 Surv(survival_DF$overall_survival, survival_DF$deceased) ~ survival_DF$cluster_groups
 
@@ -283,40 +322,7 @@ fit = survfit(Surv(overall_survival, deceased) ~ cluster_groups, data=survival_D
 library("survival")
 library("survminer")
 library(ggplot2)
-ggsurvplot(fit, data=survival_DF)
-```
 
-
-```{r}
-clust.sub.data <- data.frame(Patient = clinical_cleaned$PATIENT_ID, 
-                             Subtype = clinical_cleaned$SUBTYPE, 
-                             Clusters = cut_pca_5)
-
-library(RColorBrewer)
-
-ggplot(clust.sub.data, aes(x = cut_pca_5, fill = Subtype)) +
-  geom_bar(position = "dodge") +
-  labs(title = "Bar Plot of Subtypes within Clusters",
-       x = "Cluster",
-       y = "Count") +
-  scale_fill_brewer(palette = "Set1", name = "Subtype") +
-  theme_minimal() +  # Customize the theme if needed
-  theme(legend.position = "top")
-```
-```{r}
-clust.sub.data <- data.frame(Patient = clinical_cleaned$PATIENT_ID, 
-                             Subtype = clinical_cleaned$SUBTYPE, 
-                             Clusters = cut_pca)
-
-library(RColorBrewer)
-
-ggplot(clust.sub.data, aes(x = cut_pca, fill = Subtype)) +
-  geom_bar(position = "dodge") +
-  labs(title = "Bar Plot of Subtypes within Clusters",
-       x = "Cluster",
-       y = "Count") +
-  scale_fill_brewer(palette = "Set1", name = "Subtype") +
-  theme_minimal() +  # Customize the theme if needed
-  theme(legend.position = "top")
+ggsurvplot(fit, data=survival_DF, pval=T)
 
 ```
