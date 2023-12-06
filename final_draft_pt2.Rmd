@@ -1,0 +1,399 @@
+```{r warning = FALSE, message = FALSE}
+library(tidyverse)
+library(ggplot2)
+library(ggbiplot)
+library(RColorBrewer)
+library("survival")
+library("survminer")
+library(DESeq2)
+library("AnnotationDbi")
+library("org.Hs.eg.db")
+library(pathview)
+library(gage)
+library(gageData)
+```
+
+```{r}
+# Load Data
+data.clinical <- read.delim("data/data_clinical_patient.txt", sep = "\t", header = TRUE, comment.char = "#")
+data.mutation <- read.delim("data/data_mutations.txt", sep = "\t", header = TRUE, comment.char = "#")
+data.expression <- read.delim("data/RNAseq_BRCA.csv", sep = ",", header = TRUE, comment.char = "#")
+```
+
+```{r}
+# ------------- CLEAN AND FORMAT EXPRESSION DATA -------------
+# Set gene IDs as rownames
+rownames(data.expression) <- data.expression[, 1]
+# Remove excess gene IDs column
+data.expression <- data.expression[, -1]
+
+# Clean up patient tags for expression data
+patient.ids <- colnames(data.expression)
+patient.ids.shortened <- substr(patient.ids, 1, 12)
+patient.ids.shortened.sub <- gsub("\\.", "-", patient.ids.shortened)
+colnames(data.expression) <- patient.ids.shortened.sub
+
+# Get the data from patients with full data
+data.expression <- data.expression[, unique.patients.full.data]
+```
+
+```{r}
+# Filter out genes that only have 0 or 1 read counts accross all samples
+counts <- data.expression[rowSums(data.expression) > 1, ]
+counts.df <- as.data.frame(counts)
+```
+
+```{r}
+# ------------- NORMALIZE EXPRESSION DATA -------------
+# Perform CPM normalization
+cpm <- counts.df * 10^6  / colSums(counts.df)
+head(cpm)
+```
+
+```{r}
+# Plot raw versus log-transformed data for a single patient
+p1 <- ggplot(data = counts.df, aes(x = counts.df$`TCGA-3C-AAAU`)) + 
+  geom_histogram(bins = 50) + 
+  labs(x = "Log2 Fold Change", title = "Raw Data", 
+       y = "Number of genes")
+
+log2.cpm.df <- as.data.frame(log(cpm + 1, base = 2))
+p2 <- ggplot(data = log2.cpm.df, aes(x = log2.cpm.df$`TCGA-3C-AAAU`)) +
+  geom_histogram(bins = 50) + 
+  labs(x = "Log2 Fold Change", title = "Log Transformed CPM Data", 
+       y = "Number of genes")
+
+library("gridExtra")
+grid.arrange(p1, p2, ncol = 2)
+```
+
+Above, you can see the effect of log-transforming the raw RNA-seq counts data. Before using PCA on the expression data, you can see that log-transforming the counts makes it more like a Gaussian distribution. However, most of the data is still centered around 0. This means that the expression of most genes is very low (close to 0).
+
+```{r}
+# Log-transform the CPM counts
+log.cpm <- log(cpm + 1, base = 2)
+# Select the top 100 variable genes
+log.cpm.t <- as.data.frame(t(log.cpm))
+most.variable.genes <- order(sapply(log.cpm.t, sd), decreasing = TRUE)[1:100]
+```
+
+```{r}
+# ---------- PCA ON CPM NORMALIZED LOG TRANSFORMED EXPRESSION DATA ----------
+# Perform PCA Analysis on the expression data
+log.cpm.genes <- as.data.frame(t(log.cpm[most.variable.genes, ]))
+log.cpm.pca <- prcomp(log.cpm.genes, scale = TRUE, center = TRUE)
+ggbiplot(log.cpm.pca, var.axes = FALSE, ellipse = TRUE)
+```
+
+As seen in the above PCA plot, the PCs do not distinctly separate the data. However, you can see about two groups split by PC1.
+
+```{r}
+summary(log.cpm.pca)
+```
+
+To stay standardized with the previous mutation PCA analysis, we are capturing 85% of the variance with 36 PCs.
+
+```{r}
+# ---------- HIERARCHICAL CLUSTERING ON EXPRESSION DATA ----------
+# Cluster genes based on expression of top 100 variable genes
+expression.dist <- dist(log.cpm.pca$x[, 1:36])
+expression.ward <- hclust(expression.dist, method = 'ward.D')
+```
+
+```{r}
+CUT_HEIGHT <- 750
+cut_ward_expression <- cutree(expression.ward, h = CUT_HEIGHT)
+plot(expression.ward, main = "Expression Hierarchical Clustering Dendogram")
+rect.hclust(expression.ward, h = CUT_HEIGHT, border = 2:6)
+abline(h = CUT_HEIGHT, col = 'red')
+```
+
+2 clusters were chosen for heirarchial clustering because the PC analysis had 2 groups. Also, 2 clusters splits the patients quite well as seen in the dendogram above (the second split is much lower in the tree). Unfortunately, one cluster is much larger than the second cluster.
+
+```{r}
+annotation <- as.data.frame(cut_ward_expression)
+rownames(annotation) <- rownames(log.cpm.t)
+colnames(annotation) <- c("cluster")
+
+expression.dist.mat <- as.matrix(expression.dist)
+rownames(expression.dist.mat) <- rownames(log.cpm.t)
+colnames(expression.dist.mat) <- rownames(log.cpm.t)
+
+pheatmap(expression.dist.mat,
+         cluster_rows=TRUE, 
+         show_rownames=FALSE,
+         cluster_cols=TRUE,
+         show_colnames = FALSE,
+         annotation_col=annotation,
+         clustering_method = "ward.D")
+```
+
+Above you can see a heatmap of the distance between samples based on expression data. The clusters generated from PCA analysis and then hierarchical clustering produced good clusters that have distinct expression patterns (the clusters have a large distance apart from each other).
+
+```{r, message=FALSE}
+# ---------- DIFFERENTIAL EXPRESSION ON EXPRESSION CLUSTERS ----------
+expression.clusters <- as.data.frame(cut_ward_expression)
+rownames(expression.clusters) <- rownames(log.cpm.t)
+colnames(expression.clusters) <- c("cluster")
+dds.expression = DESeqDataSetFromMatrix(countData=counts,
+                              colData=expression.clusters,
+                              design=~cluster)
+
+```
+
+```{r}
+dds.expression <- DESeq(dds.expression)
+```
+
+```{r}
+res.expression <- results(dds.expression)
+res.expression
+```
+
+```{r}
+summary(res.expression)
+```
+
+```{r}
+plotMA(res.expression, ylim = c(-3, 3))
+```
+
+```{r}
+# Get top 20 DE Genes from expression clusters
+expression.genes <- order(res$padj, decreasing = FALSE)[1:20]
+```
+
+
+```{r}
+# Plot the expression of the top 20 differentially expressed genes
+expression.vsd <- vst(dds.expression, blind = FALSE)
+
+expression.mat <- assay(expression.vsd)[expression.genes, ]
+colnames(expression.mat) = colnames(counts.df)
+
+# Get the gene symbols instead of ENSEMBL gene IDs
+expression.genes.cleaned <- sapply(strsplit(rownames(counts.df[expression.genes,]), 
+                                      "\\."), "[", 1)
+expression.genes.sym = mapIds(org.Hs.eg.db,
+                    keys=expression.genes.cleaned, 
+                    column="SYMBOL",
+                    keytype="ENSEMBL",
+                    multiVals="first")
+
+rownames(expression.mat) <- expression.genes.sym
+
+# Data formatting
+cluster.order.df <- as.data.frame(sort(cut_ward_expression, decreasing = FALSE))
+colnames(sample.order.df) <- c(cluster)
+
+patient.order.df <- as.data.frame(list(colnames(counts), cut_ward_expression))
+colnames(patient.order.df) <- c("patient", "cluster")
+patient.order.df <- patient.order.df[order(patient.order.df$cluster), ]
+
+annotation.df <- as.data.frame(patient.order.df$cluster)
+rownames(annotation.df) <- patient.order.df$patient
+colnames(annotation.df) <- c("cluster")
+
+# Order the matrix by the clusters
+expression.mat <- expression.mat[, patient.order.df$patient]
+
+pheatmap(expression.mat, 
+         cluster_rows=FALSE, 
+         show_rownames=TRUE,
+         show_colnames = FALSE,
+         cluster_cols=FALSE, 
+         annotation_col=annotation)
+```
+Above it can be seen that clustering on the expression data generated two clusters with distinct expression patterns. This is expected as by clustering with the expression data it should achieve some level of separation.
+
+```{r}
+# ------------- ANNOTATE GENES -------------
+gene.names.cleaned.expression <- sapply(strsplit(row.names(res.expression), "\\."), "[", 1)
+res.expression$symbol = mapIds(org.Hs.eg.db,
+                    keys=gene.names.cleaned.expression, 
+                    column="SYMBOL",
+                    keytype="ENSEMBL",
+                    multiVals="first")
+```
+
+```{r}
+res.expression$entrez = mapIds(org.Hs.eg.db,
+                        keys=gene.names.cleaned.expression, 
+                        column="ENTREZID",
+                        keytype="ENSEMBL",
+                        multiVals="first")
+```
+
+```{r}
+res.expression$name = mapIds(org.Hs.eg.db,
+                      keys=gene.names.cleaned.expression, 
+                      column="GENENAME",
+                      keytype="ENSEMBL",
+                      multiVals="first")
+```
+
+```{r}
+# ------------- PATHWAY ANALYSIS ON EXPRESSION CLUSTERS -------------
+data(kegg.sets.hs)
+data(sigmet.idx.hs)
+# Focus on signaling and metabolic pathways only
+kegg.sets.hs = kegg.sets.hs[sigmet.idx.hs]
+```
+
+```{r}
+expression.fold.changes <- res.expression$log2FoldChange
+names(expression.fold.changes) <- res.expression$entrez
+```
+
+```{r}
+# Gage pathway analysis
+expression.kegg.res = gage(expression.fold.changes, gsets=kegg.sets.hs)
+```
+
+```{r}
+head(expression.kegg.res$less, 15)
+```
+
+14 metabolic pathways are being downregulated in cluster 2 compared to cluster 1. These are mostly metabolic pathways without a clear connection to literature cancer signaling pathways.
+
+```{r}
+upreg <- expression.kegg.res$greater
+head(upreg, 15)
+```
+
+Cluster 2 has 14 significant highly upregulated pathways, including cell cycle, DNA replication, and various immune cell signalling pathways.
+
+# Mutation Analysis with Expression Clusters
+```{r}
+# ------------- CLEAN MUTATION DATA -------------
+# Make a new column with the cleaned patient ID (same as other datasets)
+data.mutation$Tumor_Sample_Barcode_Cleaned <- substr(
+  data.mutation$Tumor_Sample_Barcode, 1, 12)
+
+# Non-coding transcript exon variant?
+important_mutations <- data.mutation[
+  which(data.mutation$IMPACT %in% c("HIGH", "MODERATE")), ]
+
+# Get the important mutations for full-data patients
+important_mutations_full_data <- important_mutations[
+  which(important_mutations$Tumor_Sample_Barcode_Cleaned %in% 
+          unique.patients.full.data), ]
+
+# Make feature matrix
+feature_mat <- table(important_mutations_full_data$Tumor_Sample_Barcode_Cleaned, important_mutations_full_data$Hugo_Symbol)
+
+# Turn into binary matrix
+feature_mat[feature_mat > 1] <- 1
+```
+
+```{r}
+# Filter for the top mutated genes
+feature_mat_filtered <- feature_mat[, colSums(feature_mat) >= 51]
+```
+
+```{r}
+# More formatting of the onco-matrix
+feature_df_filtered <- as.data.frame(feature_mat_filtered)
+feature_df_filtered <- pivot_wider(feature_df_filtered, names_from = Var2, values_from = Freq)
+# Save the patients
+patient.order <- feature_df_filtered$Var1
+rownames(feature_df_filtered) <- patient.order
+# Remove the patients column
+feature_df_filtered <- feature_df_filtered[, -1]
+```
+
+```{r}
+# ------------- VISUALIZE MUTATION FREQS IN CLUSTERS -------------
+# This function takes the cluster number as an input and returns a frequency 
+# table data frame of mutated genes in the cluster
+freqData <- function(clust) {
+  cluster <- feature_df_filtered[which(cut_ward_expression == clust),]
+
+  # Create frequency table
+  freq <- colSums(cluster == 1)
+  
+  # Convert frequency table to a data frame
+  data <- data.frame(column = names(freq), frequency = freq)
+  
+  # Sort the data frame by frequency in descending order
+  data <- data[order(data$frequency, decreasing = TRUE), ]
+}
+```
+
+```{r}
+# Get mutation frequency data for each cluster
+clust.data1 <- freqData(1)
+clust.data2 <- freqData(2)
+
+# Create bar plots to visualize the most frequently mutated gene in each cluster
+ggplot(clust.data1, aes(x = column, y = frequency)) +
+  geom_col() + theme(axis.text.x = element_text(angle = 45,hjust=1)) + 
+  scale_x_discrete(limits = clust.data1$column) +
+  labs(x = "Mutated Genes", y = "Frequency", 
+       title = "Gene Mutation Frequency in Cluster 1")
+
+ggplot(clust.data2, aes(x = column, y = frequency)) +
+  geom_col() + theme(axis.text.x = element_text(angle = 45,hjust=1)) + 
+  scale_x_discrete(limits = clust.data2$column) +
+  labs(x = "Mutated Genes", y = "Frequency", 
+       title = "Gene Mutation Frequency in Cluster 2")
+```
+Cluster 1 is characterized by a high mutation frequency of PIK3CA, while cluster 2 is characterized by a high mutation frequency of TP53. This clusters are very similar to clusters 2 and 3 that was found by clustering the mutation data.
+
+# Survival Analysis on Expression Clusters
+```{r}
+# ------------- CLEAN AND FORMAT SURVIVAL DATA -------------
+# OS_MONTHS indicates the number of months from time of diagnosis to time of 
+# death or last follow up
+
+# Create a subset of the clinicalData containing only the patients with mutated 
+# genes after filtering
+clinical_cleaned <- data.clinical[which(data.clinical$PATIENT_ID %in% unique.patients.full.data) ,]
+
+# Create a data frame called survival with a vector that contains TRUE = dead and 
+# FALSE = alive
+survival_DF <- data.frame(deceased = clinical_cleaned$OS_STATUS == "1:DECEASED")
+
+# Create a column of months to death from diagnosis
+indices <- which(clinical_cleaned$OS_STATUS == "1:DECEASED")
+
+# Set all to NA first since patients who are not dead should not have an 
+# OS_months value
+survival_DF$days_to_death = rep(NA, length(unique.patients.full.data))
+
+for(i in indices) {
+  survival_DF$days_to_death[i] = clinical_cleaned$OS_MONTHS[i]
+}
+
+```
+
+
+```{r}
+# ------------- SURVIVAL ANALYSIS ON EXPRESSION CLUSTERS -------------
+survival_DF$progression_free = clinical_cleaned$PFS_MONTHS
+
+# create an "overall survival" variable that is equal to days_to_death
+# for dead patients, and to progression free disease for patients who
+# are still alive
+survival_DF$overall_survival = ifelse(survival_DF$deceased,
+                                   survival_DF$days_to_death,
+                                   survival_DF$progression_free )
+
+# Create a vector within survival dataframe containing cluster groups for 
+# labeling
+survival_DF$cluster_groups <- cut_ward_expression
+
+# Now that the survival time has been tagged with the censoring, we can add the 
+# categorical independent variable `cluster groups`, and effectively create a 
+# formula
+
+Surv(survival_DF$overall_survival, 
+     survival_DF$deceased) ~ survival_DF$cluster_groups
+
+fit = survfit(Surv(overall_survival, deceased) ~ cluster_groups, 
+              data=survival_DF)
+
+ggsurvplot(fit, data=survival_DF, pval=T)
+
+```
+No significant results were found using surivial analysis on the two clusters generated from the expression data.
