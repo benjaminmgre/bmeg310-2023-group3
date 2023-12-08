@@ -15,9 +15,12 @@ library(gageData)
 
 ```{r}
 # Load Data
-data.clinical <- read.delim("data/data_clinical_patient.txt", sep = "\t", header = TRUE, comment.char = "#")
-data.mutation <- read.delim("data/data_mutations.txt", sep = "\t", header = TRUE, comment.char = "#")
-data.expression <- read.delim("data/RNAseq_BRCA.csv", sep = ",", header = TRUE, comment.char = "#")
+data.clinical <- read.delim("data/data_clinical_patient.txt", 
+                            sep = "\t", header = TRUE, comment.char = "#")
+data.mutation <- read.delim("data/data_mutations.txt", 
+                            sep = "\t", header = TRUE, comment.char = "#")
+data.expression <- read.delim("data/RNAseq_BRCA.csv", 
+                              sep = ",", header = TRUE, comment.char = "#")
 ```
 
 ```{r}
@@ -26,23 +29,31 @@ data.expression <- read.delim("data/RNAseq_BRCA.csv", sep = ",", header = TRUE, 
 # Build the patient-mutation matrix
 mutation.patients <- unique(substr(data.mutation$Tumor_Sample_Barcode, 1, 12))
 clinical.patients <- data.clinical$PATIENT_ID
-expression.patients <- gsub("\\.", "-", substr(colnames(data.expression), 1, 12)[-1])
+expression.patients <- gsub("\\.", "-", 
+                            substr(colnames(data.expression), 1, 12)[-1])
 
 # Get the patients that we have full data for
-unique.patients.full.data <- Reduce(intersect, list(mutation.patients, clinical.patients, expression.patients))
+unique.patients.full.data <- Reduce(intersect, 
+                                    list(mutation.patients, 
+                                         clinical.patients, 
+                                         expression.patients))
 ```
 
 ```{r}
 # ------------- CLEAN MUTATION DATA -------------
 
 # Make a new column with the cleaned patient ID (same as other datasets)
-data.mutation$Tumor_Sample_Barcode_Cleaned <- substr(data.mutation$Tumor_Sample_Barcode, 1, 12)
+data.mutation$Tumor_Sample_Barcode_Cleaned <- substr(
+  data.mutation$Tumor_Sample_Barcode, 1, 12)
 
 # Filter out low impact and modifier mutations
-important_mutations <- data.mutation[which(data.mutation$IMPACT %in% c("HIGH", "MODERATE")), ]
+important_mutations <- data.mutation[which(data.mutation$IMPACT 
+                                           %in% c("HIGH", "MODERATE")), ]
 
 # Get the important mutations for full-data patients
-important_mutations_full_data <- important_mutations[which(important_mutations$Tumor_Sample_Barcode_Cleaned %in% unique.patients.full.data), ]
+important_mutations_full_data <- important_mutations[which(
+  important_mutations$Tumor_Sample_Barcode_Cleaned 
+  %in% unique.patients.full.data), ]
 
 # Make feature matrix of mutated genes for each patient
 feature_mat <- table(important_mutations_full_data$Tumor_Sample_Barcode_Cleaned, important_mutations_full_data$Hugo_Symbol)
@@ -81,6 +92,7 @@ feature_df_filtered <- feature_df_filtered[, -1]
 
 We will now visualize the most mutated genes using a bar plot.
 ```{r}
+# ------------- VISUALIZE MOST MUTATED GENES -------------
 # Create frequency table
 freq <- colSums(feature_df_filtered == 1)
 
@@ -94,7 +106,8 @@ data <- data[order(data$frequency, decreasing = TRUE), ]
 ggplot(data, aes(x = column, y = frequency)) +
   geom_col() + theme(axis.text.x = element_text(angle = 45,hjust=1)) + 
   scale_x_discrete(limits = data$column) +
-  labs(x = "Mutated Genes", y = "Frequency (# of patients)")
+  labs(x = "Mutated Genes", y = "Frequency (# of patients)",
+       title = "Mutation Data Gene Frequency")
 ```
 
 The first 8 genes are mutated in >100 patients. (>10% of the patients because there are 1006 patients in the dataset.)
@@ -233,6 +246,18 @@ ggplot(clust.data3, aes(x = column, y = frequency)) +
 ```
 Cluster 2 has TP53 as its most frequent mutated gene. As basal-like is the most prominent subtype in cluster 2, this result is consistent with literature stating that TP53 is the most mutated and other mutations that were significant in luminal subtypes, such as CDH1 and MAP3K1, are absent [1]. Cluster 3 has PIK3CA as the most frequently mutated gene followed by CDH1 and MAP3K1. This is mostly consistent with literature about the luminal A subtype except for prominent mutations in GATA3, TP53 and MAP2K4 are missing in this cluster [1]. The most frequently mutated genes in cluster 1 do not correspond well with any specific subtypes based on literature [1]. Although it makes sense that this group has a high concentration of luminal A and B subtypes as GATA3 has been found to be frequently mutated in luminal-like breast cancers [2]. 
 
+```{r}
+# ------------- VISUALIZE ONCOPLOT -------------
+pheatmap_mat <- t(feature_df_filtered)
+
+library(pheatmap)
+reduce.mat <- pheatmap_mat
+res <- pheatmap(reduce.mat,
+         cluster_rows = F,
+         show_colnames=FALSE,
+         main = "Mutation Data Feature Matrix")
+```
+
 # Survival Analysis on Mutation Clusters
 ```{r}
 # ------------- FORMAT SURVIVAL DATA -------------
@@ -250,10 +275,10 @@ indices <- which(clinical_cleaned$OS_STATUS == "1:DECEASED")
 
 #Set all to NA first since patients who are not dead should not have 
 # an OS_months value
-survival_DF$days_to_death = rep(NA, length(unique.patients.full.data))
+survival_DF$months_to_death = rep(NA, length(unique.patients.full.data))
 
 for(i in indices) {
-  survival_DF$days_to_death[i] = clinical_cleaned$OS_MONTHS[i]
+  survival_DF$months_to_death[i] = clinical_cleaned$OS_MONTHS[i]
 }
 ```
 
@@ -266,21 +291,24 @@ survival_DF$progression_free = clinical_cleaned$PFS_MONTHS
 # for dead patients, and to progression free disease for patients who
 # are still alive
 survival_DF$overall_survival = ifelse(survival_DF$deceased,
-                                   survival_DF$days_to_death,
+                                   survival_DF$months_to_death,
                                    survival_DF$progression_free )
 
-#Create a vector within survival dataframe containing cluster groups for labelling
+#Create a vector within survival dataframe containing cluster groups 
+# for labelling
 survival_DF$cluster_groups <- cut_pca$cluster
 
 #Now that the survival time has been tagged with the censoring, we can add the 
-# categorical independent variable `cluster groups`, and effectively create a formula
+# categorical independent variable `cluster groups`, and effectively create a 
+# formula
 
 Surv(survival_DF$overall_survival, 
      survival_DF$deceased) ~ survival_DF$cluster_groups
 
 fit = survfit(Surv(overall_survival, 
                    deceased) ~ cluster_groups, data=survival_DF)
-ggsurvplot(fit, data=survival_DF, pval=T)
+ggsurvplot(fit, data=survival_DF, pval=T, 
+           title = "Survival Analysis of Mutation Clusters")
 
 ```
 
@@ -347,7 +375,8 @@ summary(res)
 ```{r}
 # ------------- VISUALIZE DE RESULTS ON MUTATION CLUSTERS -------------
 plotMA(res, ylim = c(-3, 3), 
-       main = "Log fold changes between mutation analysis clusters")
+       main = "Differentially expressed genes comparing mutation clusters 
+               2 and 3")
 ```
 
 ```{r}
@@ -356,7 +385,63 @@ vst <- vst(dds, blind = FALSE)
 ```
 
 ```{r}
-# Select the top 20 differentially expressed genes
+# Filter for significant genes
+res.sig <- subset(res, padj < 0.0001)
+# Select the top 10 over-expressed genes
+de.genes.up <- rownames(res.sig)[order(res.sig$log2FoldChange, 
+                                       decreasing = TRUE)[1:10]]
+de.genes.up <- which(rownames(res) %in% de.genes.up)
+# Select the top 10 under-expressed genes
+de.genes.down <- rownames(res.sig)[order(res.sig$log2FoldChange, 
+                                         decreasing = FALSE)[1:10]]
+de.genes.down <- which(rownames(res) %in% de.genes.down)
+# Bind significant genes together
+de.genes <- c(de.genes.up, de.genes.down)
+```
+
+```{r}
+# Plot the log2 fold expression of the top 20 differentially expressed genes
+sampleMatrix <- assay(vst)[de.genes,]
+colnames(sampleMatrix) <- colnames(counts)
+
+de.genes.cleaned <- sapply(strsplit(rownames(counts[de.genes,]), 
+                                      "\\."), "[", 1)
+de.genes.sym = mapIds(org.Hs.eg.db,
+                    keys=de.genes.cleaned, 
+                    column="SYMBOL",
+                    keytype="ENSEMBL",
+                    multiVals="first")
+
+# Commented out because some genes have NA symbols
+# rownames(sampleMatrix) <- de.genes.sym
+
+cluster.order.df <- as.data.frame(sort(cut_pca$cluster, decreasing = FALSE))
+colnames(cluster.order.df) <- c(cluster)
+
+patient.order.df <- as.data.frame(list(colnames(counts), cut_pca$cluster))
+colnames(patient.order.df) <- c("patient", "cluster")
+patient.order.df <- patient.order.df[order(patient.order.df$cluster), ]
+
+annotation.df <- as.data.frame(patient.order.df$cluster)
+rownames(annotation.df) <- patient.order.df$patient
+colnames(annotation.df) <- c("cluster")
+
+sampleMatrix <- sampleMatrix[, patient.order.df$patient]
+
+
+library(pheatmap)
+pheatmap(sampleMatrix,
+         cluster_rows=FALSE, 
+         show_rownames=TRUE,
+         show_colnames = FALSE,
+         cluster_cols=FALSE,
+         annotation_col = annotation.df,
+         main = "Top 20 differentially expressed genes across clusters")
+
+```
+The above plot shows the top 10 significant upregulated genes and the top 10 significant downregulated genes (sorted by cluster at the top). The clusters are able to achieve some level of separation, as the top 10 upregulated genes in cluster 2 are more highly expressed compared to cluster 3.
+
+```{r}
 de.genes <- order(res$padj, decreasing = FALSE)[1:20]
 ```
 
@@ -376,7 +461,7 @@ de.genes.sym = mapIds(org.Hs.eg.db,
 rownames(sampleMatrix) <- de.genes.sym
 
 cluster.order.df <- as.data.frame(sort(cut_pca$cluster, decreasing = FALSE))
-colnames(sample.order.df) <- c(cluster)
+colnames(cluster.order.df) <- c(cluster)
 
 patient.order.df <- as.data.frame(list(colnames(counts), cut_pca$cluster))
 colnames(patient.order.df) <- c("patient", "cluster")
@@ -388,6 +473,7 @@ colnames(annotation.df) <- c("cluster")
 
 sampleMatrix <- sampleMatrix[, patient.order.df$patient]
 
+
 library(pheatmap)
 pheatmap(sampleMatrix,
          cluster_rows=FALSE, 
@@ -396,40 +482,9 @@ pheatmap(sampleMatrix,
          cluster_cols=FALSE,
          annotation_col = annotation.df,
          main = "Top 20 differentially expressed genes across clusters")
+
 ```
 Above it is seen that differential expression analysis comparing clusters 2 and 3 shows that cluster 2 has significant upregulated genes, and cluster 3 is downregulated in comparison. These significant genes are not overlapping with any of the highly mutated genes.
-
-```{r}
-# Plot the log2 fold expression of the top 17 most mutated genes
-ens.cleaned <- sapply(strsplit(rownames(counts), 
-                                      "\\."), "[", 1)
-
-genes.sym = mapIds(org.Hs.eg.db,
-                    keys=ens.cleaned, 
-                    column="SYMBOL",
-                    keytype="ENSEMBL",
-                    multiVals="first")
-
-mut.genes <- which(genes.sym %in% colnames(feature_df_filtered))
-
-sampleMatrix <- assay(vst)[mut.genes,]
-colnames(sampleMatrix) <- colnames(counts)
-rownames(sampleMatrix) <- genes.sym[mut.genes]
-
-sampleMatrix <- sampleMatrix[, patient.order.df$patient]
-
-
-
-library(pheatmap)
-pheatmap(sampleMatrix,
-         cluster_rows=FALSE, 
-         show_rownames=TRUE,
-         show_colnames = FALSE,
-         cluster_cols=FALSE,
-         annotation_col=annotation.df,
-         main = "Expression of most highly mutated genes across clusters")
-```
-While expression analysis showed that genes are significantly differentially expressed across clusters, the genes that were identified as most highly mutated across all three clusters do not show differential expression. 
 
 
 ```{r}
@@ -478,13 +533,11 @@ kegg.res = gage(fold.changes, gsets=kegg.sets.hs)
 ```{r}
 head(kegg.res$less, 6)
 ```
-6 pathways were identified as downregulated in cluster 2 compared to cluster 3. These pathways included the cell cylce, natural killer cell mediated cytotoxicity, IgA production, and antigen processing.
+Only one pathway was found as significantly differentially expressed and downregulated in cluster 2 comapared to cluster 3, and this pathway is mammal Circadian rhythm. As seen in the expression heatmaps, cluster 2 generally has a much high gene expression on average. These results make sense because almost no pathways are being overexpressed in cluster 3 compared to cluster 2.
 
 ```{r}
 head(kegg.res$greater, 20)
 ```
 
-19 pathways were identified as significantly upregulated in cluster 2 compared to cluster 3. Some notable clusters include the MAPK signaling pathway, mTOR signaling pathway, mRNA surveillance pathway, the peroxisome pathway, and other metabolic pathways.
-
-Observation: The MAPK signaling pathway is significantly upregulated in cluster 2 compared to cluster 3. Cluster 3's third highest frequency mutated gene is MAPK, which likely means that cluster 3 tumours often have MAPK loss of function mutations.
+19 pathways were identified as significantly upregulated in cluster 2 compared to cluster 3. Some notable clusters include the cell cycle pathway, DNA replication, RNA transport, and certain immune cell pathways. 
 
