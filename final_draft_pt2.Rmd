@@ -1,3 +1,13 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+---
+# Expression Data Clustering and Analysis of Expression Clusters
+### BMEG 310 Final Report Code
+
+Laura Ing (55616957), Benjamin Green (99276917), Aadesh Mehra (39288733)
+
 ```{r warning = FALSE, message = FALSE}
 library(tidyverse)
 library(ggplot2)
@@ -11,6 +21,7 @@ library("org.Hs.eg.db")
 library(pathview)
 library(gage)
 library(gageData)
+library(pheatmap)
 ```
 
 ```{r}
@@ -21,6 +32,22 @@ data.mutation <- read.delim("data/data_mutations.txt",
                             sep = "\t", header = TRUE, comment.char = "#")
 data.expression <- read.delim("data/RNAseq_BRCA.csv", 
                               sep = ",", header = TRUE, comment.char = "#")
+```
+
+```{r}
+# ------------- GET LIST OF ALL PATIENTS WITH FULL DATA -------------
+
+# Build the patient-mutation matrix
+mutation.patients <- unique(substr(data.mutation$Tumor_Sample_Barcode, 1, 12))
+clinical.patients <- data.clinical$PATIENT_ID
+expression.patients <- gsub("\\.", "-", 
+                            substr(colnames(data.expression), 1, 12)[-1])
+
+# Get the patients that we have full data for
+unique.patients.full.data <- Reduce(intersect, 
+                                    list(mutation.patients, 
+                                         clinical.patients, 
+                                         expression.patients))
 ```
 
 ```{r}
@@ -51,7 +78,6 @@ counts.df <- as.data.frame(counts)
 # ------------- NORMALIZE EXPRESSION DATA -------------
 # Perform CPM normalization
 cpm <- counts.df * 10^6  / colSums(counts.df)
-head(cpm)
 ```
 
 ```{r}
@@ -107,7 +133,7 @@ expression.ward <- hclust(expression.dist, method = 'ward.D')
 ```{r}
 CUT_HEIGHT <- 750
 cut_ward_expression <- cutree(expression.ward, h = CUT_HEIGHT)
-plot(expression.ward, main = "Expression Hierarchical Clustering Dendogram")
+plot(expression.ward, main = "Expression Hierarchical Clustering Dendrogram")
 rect.hclust(expression.ward, h = CUT_HEIGHT, border = 2:6)
 abline(h = CUT_HEIGHT, col = 'red')
 ```
@@ -118,7 +144,7 @@ abline(h = CUT_HEIGHT, col = 'red')
 # ------------- VISUALIZE CLUSTERS VERSUS TUMOUR-SUBTYPES -------------
 # Find indices of all patients in the clinical data that have been clustered 
 # (1006 patients)
-idx <- which(data.clinical$PATIENT_ID %in% patient.order)
+idx <- which(data.clinical$PATIENT_ID %in% unique.patients.full.data)
 
 # Create a data frame containing the patient ID, their BRCA subtype and their 
 # cluster assignment
@@ -190,7 +216,6 @@ plotMA(res.expression, ylim = c(-3, 3),
 
 ```{r}
 # ------------ VISUALIZE HEATMAP OF DIFFERENTIALLY EXPRESSED GENES ------------
-
 # Get top 20 DE Genes from expression clusters
 expression.genes <- order(res.expression$padj, decreasing = FALSE)[1:20]
 ```
@@ -209,6 +234,12 @@ de.genes.down <- which(rownames(res.expression) %in% de.genes.down)
 # Bind significant genes together
 de.genes <- c(de.genes.up, de.genes.down)
 ```
+
+```{r}
+# Variance Stabalizing transform
+expression.vsd <- vst(dds.expression, blind = TRUE)
+```
+
 
 ```{r}
 # Plot the log2 fold expression of the top 20 differentially expressed genes

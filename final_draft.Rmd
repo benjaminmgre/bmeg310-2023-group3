@@ -1,3 +1,13 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+---
+# Mutation Data Clustering and Analysis of Mutation Clusters
+### BMEG 310 Final Report Code
+
+Laura Ing (55616957), Benjamin Green (99276917), Aadesh Mehra (39288733)
+
 ```{r warning = FALSE, message = FALSE}
 library(tidyverse)
 library(ggplot2)
@@ -138,7 +148,7 @@ hclust_ward <- hclust(dist_mat, method = 'ward.D')
 cut_ward <- cutree(hclust_ward, k = 3)
 
 # Plot a dendogram to visualize clusters
-plot(hclust_ward, main = "Mutation Hierarchical Clustering Dendogram")
+plot(hclust_ward, main = "Mutation Hierarchical Clustering Dendrogram")
 rect.hclust(hclust_ward, k = 3, border = 2:6)
 abline(h = 60, col = 'red')
 ```
@@ -164,7 +174,7 @@ hclust_pca <- hclust(dist_mat_pca, method = 'ward.D')
 cut_pca <- cutree(hclust_pca, k=3)
 
 # Plot a dendogram to visualize clusters
-plot(hclust_pca, main = "PCA Hierarchical Clustering Dendogram")
+plot(hclust_pca, main = "PCA Hierarchical Clustering Dendrogram")
 rect.hclust(hclust_pca,k=3, border = 2:6)
 abline(h=95, col = 'red')
 ```
@@ -244,7 +254,7 @@ ggplot(clust.data3, aes(x = column, y = frequency)) +
   labs(x = "Mutated Genes", y = "Frequency", 
        title = "Gene Mutation Frequency in Cluster 3")
 ```
-Cluster 2 has TP53 as its most frequent mutated gene. As basal-like is the most prominent subtype in cluster 2, this result is consistent with literature stating that TP53 is the most mutated and other mutations that were significant in luminal subtypes, such as CDH1 and MAP3K1, are absent [1]. Cluster 3 has PIK3CA as the most frequently mutated gene followed by CDH1 and MAP3K1. This is mostly consistent with literature about the luminal A subtype except for prominent mutations in GATA3, TP53 and MAP2K4 are missing in this cluster [1]. The most frequently mutated genes in cluster 1 do not correspond well with any specific subtypes based on literature [1]. Although it makes sense that this group has a high concentration of luminal A and B subtypes as GATA3 has been found to be frequently mutated in luminal-like breast cancers [2]. 
+Cluster 2 has TP53 as its most frequent mutated gene. As basal-like is the most prominent subtype in cluster 2, this result is consistent with literature stating that TP53 is the most mutated and other mutations that were significant in luminal subtypes, such as CDH1 and MAP3K1, are absent [2]. Cluster 3 has PIK3CA as the most frequently mutated gene followed by CDH1 and MAP3K1. This is mostly consistent with literature about the luminal A subtype except for prominent mutations in GATA3, TP53 and MAP2K4 are missing in this cluster [2]. The most frequently mutated genes in cluster 1 do not correspond well with any specific subtypes based on literature [2]. Although it makes sense that this group has a high concentration of luminal A and B subtypes as GATA3 has been found to be frequently mutated in luminal-like breast cancers [4]. 
 
 ```{r}
 # ------------- VISUALIZE ONCOPLOT -------------
@@ -436,7 +446,8 @@ pheatmap(sampleMatrix,
          show_colnames = FALSE,
          cluster_cols=FALSE,
          annotation_col = annotation.df,
-         main = "Top 20 differentially expressed genes across clusters")
+         main = "Top 10 upregulated and top 10 downregulated 
+         differentially expressed genes across clusters")
 
 ```
 The above plot shows the top 10 significant upregulated genes and the top 10 significant downregulated genes (sorted by cluster at the top). The clusters are able to achieve some level of separation, as the top 10 upregulated genes in cluster 2 are more highly expressed compared to cluster 3.
